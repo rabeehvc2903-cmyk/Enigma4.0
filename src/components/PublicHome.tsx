@@ -101,7 +101,7 @@ export const PublicHome: React.FC<PublicHomeProps> = ({
             <span className="px-3 py-1 rounded-full bg-amber-500/10 border border-amber-400/40 text-amber-300 text-xs font-black font-mono shadow-[0_0_12px_rgba(245,158,11,0.2)] flex items-center gap-1.5">
               <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse shrink-0" />
               <span className="text-slate-300 font-semibold">After</span>
-              <span className="text-amber-400 font-black px-1.5 py-0.5 rounded bg-amber-400/20 border border-amber-400/30">
+              <span className="text-amber-400 font-black px-1.5 py-0.5 rounded bg-[#2d2613] border-none">
                 {publishedCount}
               </span>
             </span>

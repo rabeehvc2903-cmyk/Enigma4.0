@@ -16,6 +16,7 @@ import {
   subscribeToModularCloudCollections, 
   pushFullStateToModularCloud, 
   fetchInitialModularCloudState,
+  startSupabaseSync,
   saveDocToModularCloud,
   deleteDocFromModularCloud,
   batchSaveDocsToModularCloud,
@@ -26,6 +27,8 @@ import {
   markCloudQuotaExhausted,
   resetCloudQuotaFlag
 } from './supabase';
+
+export { startSupabaseSync };
 import { getParticipantPhoto } from './avatarUtils';
 
 const STORE_KEY = 'madani_art_fest_v2_clean';
@@ -230,7 +233,7 @@ class FestStore {
     this.saveData(cleanState);
     if (isSupabaseConfigured) {
       this.syncToCloud(cleanState, true);
-      clearAllModularCloudData().then(() => {
+      clearAllModularCloudData('DELETE_ALL_FEST_DATA').then(() => {
         this.syncToCloud(cleanState, true);
       }).catch((err) => {
         console.warn('Error clearing Supabase cloud data:', err);
@@ -281,6 +284,184 @@ class FestStore {
     };
   }
 
+  /**
+   * Replace / hydrate the application state with fresh data from Supabase
+   */
+  public setApplicationState(freshState: any): void {
+    if (!freshState || typeof freshState !== 'object') return;
+    this.isInitialCloudSyncResolved = true;
+    const hasCloudData = (
+      (Array.isArray(freshState.groups) && freshState.groups.length > 0) ||
+      (Array.isArray(freshState.competitions) && freshState.competitions.length > 0) ||
+      (Array.isArray(freshState.profiles) && freshState.profiles.length > 0) ||
+      (freshState.updatedAt && !this.isDeviceFresh)
+    );
+
+    if (hasCloudData) {
+      console.log('Successfully hydrated state from Supabase real-time database.');
+      this.hasReceivedCloudData = true;
+      this.isDeviceFresh = false;
+      this.isSyncingFromCloud = true;
+      this.inMemoryState = {
+        ...this.getDefaultData(),
+        ...freshState,
+        profiles: ensureSystemProfiles(freshState.profiles)
+      };
+      this.lastSyncedState = JSON.parse(JSON.stringify(this.inMemoryState));
+      try {
+        localStorage.setItem(STORE_KEY, JSON.stringify(this.inMemoryState));
+      } catch (storageErr) {
+        console.warn('LocalStorage limit exceeded while syncing Supabase cloud data.', storageErr);
+      }
+      this.cloudStatus = 'connected';
+      this.cloudError = null;
+      this.isSyncingFromCloud = false;
+      this.notify();
+    } else {
+      console.log('No existing remote festival data found in Supabase. Ready for live sync.');
+      this.hasReceivedCloudData = true;
+      this.isDeviceFresh = false;
+      this.cloudStatus = 'connected';
+      this.cloudError = null;
+      this.notify();
+      if (this.inMemoryState && ((this.inMemoryState.groups && this.inMemoryState.groups.length > 0) || (this.inMemoryState.competitions && this.inMemoryState.competitions.length > 0))) {
+        this.syncToCloud(this.inMemoryState, true);
+      }
+    }
+  }
+
+  /**
+   * Apply real-time INSERT, UPDATE, and DELETE changes from Supabase
+   */
+  public applyRealtimeUpdate(type: string, data: any): void {
+    if (!this.inMemoryState) {
+      this.inMemoryState = this.getDefaultData();
+    }
+
+    console.log(`Received Supabase real-time event for [${type}].`);
+    this.hasReceivedCloudData = true;
+    this.isInitialCloudSyncResolved = true;
+    this.isDeviceFresh = false;
+    this.isSyncingFromCloud = true;
+
+    if (type.startsWith('single_')) {
+      const storeKey = type.replace('single_', '') as keyof StoreData;
+      const { action, item, id } = data;
+      const list = Array.isArray(this.inMemoryState[storeKey]) ? [...(this.inMemoryState[storeKey] as any[])] : [];
+      
+      if (action === 'delete') {
+        (this.inMemoryState as any)[storeKey] = list.filter((x: any) => String(x.id) !== String(id));
+      } else if (action === 'upsert' && item) {
+        const itemToInsert = storeKey === 'competitions' ? (() => {
+          const c = item;
+          const isScheduled = Boolean(c.scheduleTime && String(c.scheduleTime).trim()) || c.status === 'completed' || Boolean(c.isPublishedResult);
+          let status = c.status || 'pending';
+          let isRunning = Boolean(c.isRunning);
+          if (status === 'completed' || c.isPublishedResult) {
+            status = 'completed';
+            isRunning = false;
+          } else if (!isScheduled) {
+            if (status === 'running') status = 'pending';
+            isRunning = false;
+          } else if (status === 'running' || isRunning) {
+            status = 'running';
+            isRunning = true;
+          }
+          return { ...c, status, isRunning };
+        })() : item;
+
+        const idx = list.findIndex((x: any) => String(x.id) === String(item.id || id));
+        if (idx >= 0) {
+          list[idx] = itemToInsert;
+        } else {
+          list.push(itemToInsert);
+        }
+        if (storeKey === 'profiles') {
+          (this.inMemoryState as any)[storeKey] = ensureSystemProfiles(list);
+        } else {
+          (this.inMemoryState as any)[storeKey] = list;
+        }
+      }
+    } else if (type === 'settings' && data) {
+      if (data.brandingConfig) this.inMemoryState.brandingConfig = data.brandingConfig;
+      if (data.countdownConfig) this.inMemoryState.countdownConfig = data.countdownConfig;
+      if (data.socialLinks) this.inMemoryState.socialLinks = data.socialLinks;
+      if (data.limitRules) this.inMemoryState.limitRules = data.limitRules;
+      if (data.participantIdConfig) this.inMemoryState.participantIdConfig = data.participantIdConfig;
+      if (data.posterTemplateConfig) this.inMemoryState.posterTemplateConfig = data.posterTemplateConfig;
+      if (data.performancePointConfig) this.inMemoryState.performancePointConfig = data.performancePointConfig;
+      if (Array.isArray(data.categories)) this.inMemoryState.categories = data.categories;
+      if (Array.isArray(data.stages)) this.inMemoryState.stages = data.stages;
+      if (Array.isArray(data.levels)) this.inMemoryState.levels = data.levels;
+      if (Array.isArray(data.festivalDays)) this.inMemoryState.festivalDays = data.festivalDays;
+      if (typeof data.showGroupPointStatus === 'boolean') this.inMemoryState.showGroupPointStatus = data.showGroupPointStatus;
+      if (data.commentSettings) this.inMemoryState.commentSettings = data.commentSettings;
+      if (Array.isArray(data.activeValuationCompIds)) this.inMemoryState.activeValuationCompIds = data.activeValuationCompIds;
+      if (data.activeValuationCompId) this.inMemoryState.activeValuationCompId = data.activeValuationCompId;
+    } else if (type === 'groups' && Array.isArray(data)) {
+      this.inMemoryState.groups = data;
+    } else if (type === 'profiles' && Array.isArray(data)) {
+      this.inMemoryState.profiles = ensureSystemProfiles(data);
+    } else if (type === 'competitions' && Array.isArray(data)) {
+      this.inMemoryState.competitions = data.map((c: any) => {
+        const isScheduled = Boolean(c.scheduleTime && String(c.scheduleTime).trim()) || c.status === 'completed' || Boolean(c.isPublishedResult);
+        let status = c.status || 'pending';
+        let isRunning = Boolean(c.isRunning);
+        if (status === 'completed' || c.isPublishedResult) {
+          status = 'completed';
+          isRunning = false;
+        } else if (!isScheduled) {
+          if (status === 'running') status = 'pending';
+          isRunning = false;
+        } else if (status === 'running' || isRunning) {
+          status = 'running';
+          isRunning = true;
+        }
+        return { ...c, status, isRunning };
+      });
+    } else if (type === 'registrations' && Array.isArray(data)) {
+      this.inMemoryState.registrations = data;
+    } else if (type === 'results' && Array.isArray(data)) {
+      this.inMemoryState.results = data;
+    } else if (type === 'comments' && Array.isArray(data)) {
+      this.inMemoryState.comments = data;
+    } else if (type === 'notifications' && Array.isArray(data)) {
+      this.inMemoryState.notifications = data;
+    } else if (type === 'eventPosters' && Array.isArray(data)) {
+      this.inMemoryState.eventPosters = data;
+    }
+
+    if (['results', 'registrations', 'competitions', 'groups', 'single_results', 'single_registrations', 'single_competitions', 'single_groups'].includes(type)) {
+      this.recalculateGroupPoints(false);
+    }
+
+    // Keep lastSyncedState in lock-step with remote changes
+    this.lastSyncedState = JSON.parse(JSON.stringify(this.inMemoryState));
+
+    try {
+      localStorage.setItem(STORE_KEY, JSON.stringify(this.inMemoryState));
+    } catch (storageErr) {
+      console.warn('LocalStorage save skipped during Supabase live update.', storageErr);
+    }
+
+    this.cloudStatus = 'connected';
+    this.cloudError = null;
+    this.notify();
+    this.isSyncingFromCloud = false;
+  }
+
+  /**
+   * Stop Supabase synchronization (call when logging out or destroying the app)
+   */
+  public stopSupabaseSync(): void {
+    if (this.unsubscribeSnapshot) {
+      this.unsubscribeSnapshot();
+      this.unsubscribeSnapshot = null;
+    }
+    this.cloudStatus = 'disconnected';
+    this.notify();
+  }
+
   private async initCloudSync(): Promise<void> {
     if (!isSupabaseConfigured) {
       this.cloudStatus = 'disconnected';
@@ -293,185 +474,28 @@ class FestStore {
       this.cloudStatus = 'initializing';
       this.cloudError = null;
       this.notify();
-      console.log('Connecting to Supabase Real-Time Sync...');
+      console.log('Connecting to Supabase Real-Time Sync using startSupabaseSync...');
 
-      // 1. Fetch initial modular state from Supabase
-      try {
-        const cloudState = await fetchInitialModularCloudState();
-        this.isInitialCloudSyncResolved = true;
-        const hasCloudData = cloudState && typeof cloudState === 'object' && (
-          (Array.isArray(cloudState.groups) && cloudState.groups.length > 0) ||
-          (Array.isArray(cloudState.competitions) && cloudState.competitions.length > 0) ||
-          (Array.isArray(cloudState.profiles) && cloudState.profiles.length > 0) ||
-          (cloudState.updatedAt && !this.isDeviceFresh)
-        );
-
-        if (hasCloudData) {
-          console.log('Successfully hydrated state from Supabase real-time database.');
-          this.hasReceivedCloudData = true;
-          this.isDeviceFresh = false;
-          this.isSyncingFromCloud = true;
-          this.inMemoryState = {
-            ...this.getDefaultData(),
-            ...cloudState,
-            profiles: ensureSystemProfiles(cloudState.profiles)
-          };
-          this.lastSyncedState = JSON.parse(JSON.stringify(this.inMemoryState));
-          try {
-            localStorage.setItem(STORE_KEY, JSON.stringify(this.inMemoryState));
-          } catch (storageErr) {
-            console.warn('LocalStorage limit exceeded while syncing Supabase cloud data.', storageErr);
-          }
-          this.cloudStatus = 'connected';
-          this.cloudError = null;
-          this.notify();
-          this.isSyncingFromCloud = false;
-        } else {
-          console.log('No existing remote festival data found in Supabase. Setting up live subscription.');
-          this.hasReceivedCloudData = true;
-          this.isDeviceFresh = false;
-          this.cloudStatus = 'connected';
-          this.cloudError = null;
-          this.notify();
-          if (this.inMemoryState && ((this.inMemoryState.groups && this.inMemoryState.groups.length > 0) || (this.inMemoryState.competitions && this.inMemoryState.competitions.length > 0))) {
-            this.syncToCloud(this.inMemoryState, true);
-          }
-        }
-      } catch (fetchErr: any) {
-        console.warn('Supabase cloud fetch note, proceeding to live subscription:', fetchErr);
-        this.isInitialCloudSyncResolved = true;
-      }
-
-      // 2. Subscribe to Supabase Realtime changes
+      // Clean up previous subscription if active
       if (this.unsubscribeSnapshot) {
         this.unsubscribeSnapshot();
+        this.unsubscribeSnapshot = null;
       }
 
-      this.unsubscribeSnapshot = subscribeToModularCloudCollections(
-        (type: string, data: any) => {
-          if (!this.inMemoryState) {
-            this.inMemoryState = this.getDefaultData();
-          }
-
-          console.log(`Received Supabase real-time event for [${type}].`);
-          this.hasReceivedCloudData = true;
-          this.isInitialCloudSyncResolved = true;
-          this.isDeviceFresh = false;
-          this.isSyncingFromCloud = true;
-
-          if (type.startsWith('single_')) {
-            const storeKey = type.replace('single_', '') as keyof StoreData;
-            const { action, item, id } = data;
-            const list = Array.isArray(this.inMemoryState[storeKey]) ? [...(this.inMemoryState[storeKey] as any[])] : [];
-            
-            if (action === 'delete') {
-              (this.inMemoryState as any)[storeKey] = list.filter((x: any) => String(x.id) !== String(id));
-            } else if (action === 'upsert' && item) {
-              const itemToInsert = storeKey === 'competitions' ? (() => {
-                const c = item;
-                const isScheduled = Boolean(c.scheduleTime && String(c.scheduleTime).trim()) || c.status === 'completed' || Boolean(c.isPublishedResult);
-                let status = c.status || 'pending';
-                let isRunning = Boolean(c.isRunning);
-                if (status === 'completed' || c.isPublishedResult) {
-                  status = 'completed';
-                  isRunning = false;
-                } else if (!isScheduled) {
-                  if (status === 'running') status = 'pending';
-                  isRunning = false;
-                } else if (status === 'running' || isRunning) {
-                  status = 'running';
-                  isRunning = true;
-                }
-                return { ...c, status, isRunning };
-              })() : item;
-
-              const idx = list.findIndex((x: any) => String(x.id) === String(item.id || id));
-              if (idx >= 0) {
-                list[idx] = itemToInsert;
-              } else {
-                list.push(itemToInsert);
-              }
-              if (storeKey === 'profiles') {
-                (this.inMemoryState as any)[storeKey] = ensureSystemProfiles(list);
-              } else {
-                (this.inMemoryState as any)[storeKey] = list;
-              }
-            }
-          } else if (type === 'settings' && data) {
-            if (data.brandingConfig) this.inMemoryState.brandingConfig = data.brandingConfig;
-            if (data.countdownConfig) this.inMemoryState.countdownConfig = data.countdownConfig;
-            if (data.socialLinks) this.inMemoryState.socialLinks = data.socialLinks;
-            if (data.limitRules) this.inMemoryState.limitRules = data.limitRules;
-            if (data.participantIdConfig) this.inMemoryState.participantIdConfig = data.participantIdConfig;
-            if (data.posterTemplateConfig) this.inMemoryState.posterTemplateConfig = data.posterTemplateConfig;
-            if (data.performancePointConfig) this.inMemoryState.performancePointConfig = data.performancePointConfig;
-            if (Array.isArray(data.categories)) this.inMemoryState.categories = data.categories;
-            if (Array.isArray(data.stages)) this.inMemoryState.stages = data.stages;
-            if (Array.isArray(data.levels)) this.inMemoryState.levels = data.levels;
-            if (Array.isArray(data.festivalDays)) this.inMemoryState.festivalDays = data.festivalDays;
-            if (typeof data.showGroupPointStatus === 'boolean') this.inMemoryState.showGroupPointStatus = data.showGroupPointStatus;
-            if (data.commentSettings) this.inMemoryState.commentSettings = data.commentSettings;
-            if (Array.isArray(data.activeValuationCompIds)) this.inMemoryState.activeValuationCompIds = data.activeValuationCompIds;
-            if (data.activeValuationCompId) this.inMemoryState.activeValuationCompId = data.activeValuationCompId;
-          } else if (type === 'groups' && Array.isArray(data)) {
-            this.inMemoryState.groups = data;
-          } else if (type === 'profiles' && Array.isArray(data)) {
-            this.inMemoryState.profiles = ensureSystemProfiles(data);
-          } else if (type === 'competitions' && Array.isArray(data)) {
-            this.inMemoryState.competitions = data.map((c: any) => {
-              const isScheduled = Boolean(c.scheduleTime && String(c.scheduleTime).trim()) || c.status === 'completed' || Boolean(c.isPublishedResult);
-              let status = c.status || 'pending';
-              let isRunning = Boolean(c.isRunning);
-              if (status === 'completed' || c.isPublishedResult) {
-                status = 'completed';
-                isRunning = false;
-              } else if (!isScheduled) {
-                if (status === 'running') status = 'pending';
-                isRunning = false;
-              } else if (status === 'running' || isRunning) {
-                status = 'running';
-                isRunning = true;
-              }
-              return { ...c, status, isRunning };
-            });
-          } else if (type === 'registrations' && Array.isArray(data)) {
-            this.inMemoryState.registrations = data;
-          } else if (type === 'results' && Array.isArray(data)) {
-            this.inMemoryState.results = data;
-          } else if (type === 'comments' && Array.isArray(data)) {
-            this.inMemoryState.comments = data;
-          } else if (type === 'notifications' && Array.isArray(data)) {
-            this.inMemoryState.notifications = data;
-          } else if (type === 'eventPosters' && Array.isArray(data)) {
-            this.inMemoryState.eventPosters = data;
-          }
-
-          if (['results', 'registrations', 'competitions', 'groups', 'single_results', 'single_registrations', 'single_competitions', 'single_groups'].includes(type)) {
-            this.recalculateGroupPoints(false);
-          }
-
-          // Keep lastSyncedState in lock-step with remote changes
-          this.lastSyncedState = JSON.parse(JSON.stringify(this.inMemoryState));
-
-          try {
-            localStorage.setItem(STORE_KEY, JSON.stringify(this.inMemoryState));
-          } catch (storageErr) {
-            console.warn('LocalStorage save skipped during Supabase live update.', storageErr);
-          }
-
-          this.cloudStatus = 'connected';
-          this.cloudError = null;
-          this.notify();
-          this.isSyncingFromCloud = false;
+      this.unsubscribeSnapshot = await startSupabaseSync(
+        (freshState) => {
+          this.setApplicationState(freshState);
         },
-        (err: any) => {
-          console.warn('Supabase Realtime subscription note:', err);
+        (type, data) => {
+          this.applyRealtimeUpdate(type, data);
+        },
+        (error) => {
+          console.warn('Supabase sync error:', error?.message);
           this.cloudStatus = 'error';
-          this.cloudError = err?.message || 'Supabase connection issue.';
+          this.cloudError = error?.message || 'Supabase connection issue.';
           this.notify();
         }
       );
-
     } catch (err: any) {
       console.error('Failed to initialize Supabase Realtime Sync:', err);
       this.cloudStatus = 'error';
