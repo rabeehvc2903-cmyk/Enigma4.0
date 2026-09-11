@@ -179,9 +179,6 @@ export const JudgeDashboard: React.FC<JudgeDashboardProps> = ({
                   </span>
                 )}
               </div>
-              <p className="text-xs text-slate-400 mt-0.5">
-                Evaluation Desk • Confidential Blind Scoring (Code Letters A, B, C...) • Stage-by-Stage View
-              </p>
             </div>
           </div>
 
@@ -216,141 +213,6 @@ export const JudgeDashboard: React.FC<JudgeDashboardProps> = ({
       {/* TAB 1: VALUATION SHEET */}
       {activeTab === 'valuation' && (
         <div className="poster-card p-6 sm:p-8 bg-[#151728] rounded-3xl border border-[#292d4a] space-y-6 shadow-xl">
-          
-          {/* SEPARATE SECTION FOR EACH STAGE IN ASSIGNED COMPETITIONS */}
-          {assignedComps.length > 0 && (
-            <div className="space-y-4 pb-4 border-b border-[#292d4a]">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <Landmark className="w-4 h-4 text-emerald-400" />
-                  <h3 className="text-xs font-black uppercase tracking-wider text-white">
-                    Assigned Competitions by Stage ({assignedComps.length} Events)
-                  </h3>
-                </div>
-                <span className="text-[11px] text-slate-400">
-                  Select a competition within any stage section to load its valuation sheet:
-                </span>
-              </div>
-
-              {/* Stage Filter Buttons for Judge */}
-              {assignedStages.length > 1 && (
-                <div className="flex flex-wrap items-center gap-1.5 pb-1">
-                  {assignedStages.map(stg => {
-                    const isSelected = judgeStageFilter === stg;
-                    return (
-                      <button
-                        key={stg}
-                        type="button"
-                        onClick={() => setJudgeStageFilter(prev => prev === stg ? 'All' : stg)}
-                        className={`px-3 py-1 text-xs font-bold rounded-xl transition-all cursor-pointer flex items-center gap-1.5 ${
-                          isSelected
-                            ? 'bg-emerald-600 text-white shadow-md ring-1 ring-emerald-400'
-                            : 'bg-[#181b30] text-slate-400 hover:text-white border border-[#292d4a]'
-                        }`}
-                      >
-                        <Landmark className="w-3 h-3 text-emerald-400" />
-                        <span>{stg}</span>
-                        <span className="px-1.5 py-0.2 rounded-md bg-black/20 text-[10px]">
-                          {assignedCompsByStage[stg]?.length || 0}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-
-              {/* Render Separate Section for Each Stage */}
-              <div className="space-y-4">
-                {(judgeStageFilter === 'All' ? assignedStages : [judgeStageFilter]).map(stg => {
-                  const compsInThisStage = assignedCompsByStage[stg] || [];
-                  if (compsInThisStage.length === 0) return null;
-
-                  return (
-                    <div 
-                      key={stg}
-                      className="p-4 rounded-2xl bg-[#181b30] border border-[#292d4a] space-y-3 shadow-md"
-                    >
-                      {/* Stage Header */}
-                      <div className="flex items-center justify-between border-b border-[#292d4a]/80 pb-2.5">
-                        <div className="flex items-center gap-2">
-                          <div className="p-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400">
-                            <Landmark className="w-4 h-4" />
-                          </div>
-                          <div>
-                            <h4 className="text-xs font-black text-white uppercase tracking-wider">
-                              {stg}
-                            </h4>
-                            <span className="text-[10px] text-slate-400">
-                              {compsInThisStage.length} Assigned Event{compsInThisStage.length > 1 ? 's' : ''}
-                            </span>
-                          </div>
-                        </div>
-
-                        <span className="px-2 py-0.5 rounded-md bg-indigo-500/10 text-indigo-300 text-[10px] font-bold border border-indigo-500/20">
-                          Stage Venue
-                        </span>
-                      </div>
-
-                      {/* Stage Competition Switcher Cards Grid */}
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
-                        {compsInThisStage.map(comp => {
-                          const compRegs = registrations.filter(r => r.competitionId === comp.id && r.isReported && r.codeLetter);
-                          const scoredCount = compRegs.filter(r => {
-                            const mark = marksState[r.id] !== undefined ? marksState[r.id] : r.mark;
-                            return mark !== undefined && mark !== null && String(mark).trim() !== '';
-                          }).length;
-                          const isSelected = selectedComp?.id === comp.id;
-                          const isFullyScored = compRegs.length > 0 && scoredCount === compRegs.length;
-
-                          return (
-                            <button
-                              key={comp.id}
-                              type="button"
-                              onClick={() => setSelectedCompId(comp.id)}
-                              className={`p-3 rounded-xl text-xs font-bold transition-all flex flex-col justify-between gap-2 border cursor-pointer text-left ${
-                                isSelected
-                                  ? 'bg-gradient-to-br from-emerald-950/80 to-[#151728] border-emerald-400 shadow-md ring-2 ring-emerald-500/40'
-                                  : 'bg-[#121424] text-slate-300 hover:text-white hover:bg-[#1a1d33] border-[#292d4a]'
-                              }`}
-                            >
-                              <div className="flex items-start justify-between gap-2">
-                                <div className="space-y-0.5">
-                                  <div className="flex items-center gap-1.5">
-                                    <span className="px-1.5 py-0.5 rounded-md bg-purple-500/20 text-purple-300 text-[9px] font-bold border border-purple-500/30">
-                                      {comp.category}
-                                    </span>
-                                    {isSelected && (
-                                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                                    )}
-                                  </div>
-                                  <h5 className="text-xs font-black text-white line-clamp-1 pt-0.5">
-                                    {comp.name}
-                                  </h5>
-                                </div>
-                              </div>
-
-                              <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1.5 border-t border-[#292d4a]/60">
-                                <span>{compRegs.length} Reported</span>
-                                <span className={`px-2 py-0.5 rounded-full font-mono font-bold ${
-                                  isFullyScored
-                                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                                    : isSelected
-                                      ? 'bg-emerald-600/30 text-emerald-200'
-                                      : 'bg-slate-800 text-slate-400'
-                                }`}>
-                                  {scoredCount}/{compRegs.length} Scored
-                                </span>
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
 
           {/* Selected Competition Valuation Details */}
           {selectedComp ? (
@@ -359,33 +221,11 @@ export const JudgeDashboard: React.FC<JudgeDashboardProps> = ({
               {/* Competition Info Header Card with Live Status & Stage Info */}
               <div className="p-4 sm:p-5 rounded-2xl bg-[#181b30] border border-emerald-500/40 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-lg">
                 <div>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="px-2.5 py-1 rounded-xl bg-emerald-500/20 text-emerald-300 text-[10px] font-black uppercase tracking-wider border border-emerald-500/40 flex items-center gap-1.5 shadow-sm">
-                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                      Active Competition on Judge Desk
-                    </span>
-                    <span className="px-2 py-0.5 rounded-lg bg-indigo-500/20 text-indigo-300 text-[10px] font-bold border border-indigo-500/30 flex items-center gap-1">
-                      <Landmark className="w-3 h-3 text-indigo-400" />
-                      {getCompStage(selectedComp)}
-                    </span>
-                    <span className="px-2 py-0.5 rounded-lg bg-purple-500/20 text-purple-300 text-[10px] font-bold border border-purple-500/30">
-                      {selectedComp.category}
-                    </span>
-                  </div>
-                  
-                  <h2 className="text-lg sm:text-xl font-black text-white mt-2">
+                  <h2 className="text-lg sm:text-xl font-black text-white">
                     {selectedComp.name}
                   </h2>
 
                   <div className="flex flex-wrap items-center gap-4 text-xs text-slate-400 mt-1.5">
-                    <span className="flex items-center gap-1">
-                      <MapPin className="w-3.5 h-3.5 text-slate-400" />
-                      Venue / Stage: <strong className="text-slate-200">{getCompStage(selectedComp)}</strong>
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <Clock className="w-3.5 h-3.5 text-slate-400" />
-                      {selectedComp.scheduleTime}
-                    </span>
                     <span className="text-emerald-400 font-bold">
                       {reportedCandidates.length} Reported Candidate(s)
                     </span>
