@@ -1401,6 +1401,98 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   };
 
+  // Toggle Publish / Unpublish directly for a competition
+  const handleTogglePublishResult = (comp: Competition) => {
+    setResultSuccessMsg('');
+    setResultErrorMsg('');
+
+    if (comp.isPublishedResult) {
+      // Unpublish
+      try {
+        festStore.unpublishResult(comp.id);
+        setResultSuccessMsg(`Result for "${comp.name}" has been unpublished.`);
+        onRefresh();
+      } catch (err: any) {
+        setResultErrorMsg(err.message || 'Error unpublishing result');
+      }
+    } else {
+      // Publish automatically from judge marks
+      const compRegs = registrations.filter(r => r.competitionId === comp.id);
+      const reportedRegs = compRegs.filter(r => r.isReported === true);
+      const scoredRegs = reportedRegs
+        .filter(r => r.mark !== undefined && r.mark !== null && String(r.mark).trim() !== '')
+        .map(r => ({ ...r, numMark: Number(r.mark) || 0 }))
+        .sort((a, b) => b.numMark - a.numMark);
+
+      if (scoredRegs.length === 0) {
+        setResultErrorMsg(`Cannot publish "${comp.name}": No judge scores recorded yet.`);
+        return;
+      }
+
+      const p1 = scoredRegs[0]?.id;
+      const p2 = scoredRegs[1]?.id;
+      const p3 = scoredRegs[2]?.id;
+
+      if (!p1) {
+        setResultErrorMsg('Cannot publish result: 1st place winner could not be determined.');
+        return;
+      }
+
+      try {
+        let participantPointsMap: Record<string, {
+          competitionPoints: number;
+          performancePoints: number;
+          totalPoints: number;
+          grade: string;
+          score: number;
+        }> | undefined = undefined;
+
+        if (useDetailedPoints) {
+          participantPointsMap = {};
+          reportedRegs.forEach(reg => {
+            const score = Number(reg.mark) || 0;
+            const { grade, points: performancePoints } = calculatePerformancePoints(
+              score,
+              comp.type || 'Individual',
+              comp.teamSize || 4
+            );
+
+            let competitionPoints = 0;
+            if (reg.id === p1) {
+              competitionPoints = comp.points1st || 10;
+            } else if (reg.id === p2) {
+              competitionPoints = comp.points2nd || 7;
+            } else if (reg.id === p3) {
+              competitionPoints = comp.points3rd || 5;
+            }
+
+            participantPointsMap![reg.id] = {
+              competitionPoints,
+              performancePoints,
+              totalPoints: competitionPoints + performancePoints,
+              grade,
+              score
+            };
+          });
+        }
+
+        festStore.publishResult(
+          comp.id,
+          p1,
+          p2 || undefined,
+          p3 || undefined,
+          useDetailedPoints,
+          participantPointsMap
+        );
+
+        setResultSuccessMsg(`Result for "${comp.name}" published successfully! Live group points updated.`);
+        onRefresh();
+      } catch (err: any) {
+        setResultErrorMsg(err.message || 'Error publishing result');
+      }
+    }
+  };
+
   // Open Create Competition Modal
   const handleOpenCreateCompModal = () => {
     setEditingComp(null);
@@ -2255,17 +2347,24 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           <td className="py-3 px-4 text-right">
                             <button
                               type="button"
-                              onClick={() => {
-                                setSelectedCompId(comp.id);
-                                window.scrollTo({ top: 0, behavior: 'smooth' });
-                              }}
-                              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                              onClick={() => handleTogglePublishResult(comp)}
+                              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-sm flex items-center justify-end gap-1.5 ml-auto ${
                                 isPublished
-                                  ? 'bg-purple-900/40 hover:bg-purple-800/60 border border-purple-500/40 text-purple-200'
-                                  : 'bg-purple-600 hover:bg-purple-500 text-white shadow-md shadow-purple-600/20'
+                                  ? 'bg-rose-500/20 hover:bg-rose-600 border border-rose-500/40 text-rose-300 hover:text-white'
+                                  : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-600/20'
                               }`}
                             >
-                              {isPublished ? 'Edit Result' : 'Enter Result'}
+                              {isPublished ? (
+                                <>
+                                  <EyeOff className="w-3.5 h-3.5" />
+                                  <span>Unpublish</span>
+                                </>
+                              ) : (
+                                <>
+                                  <CheckCircle className="w-3.5 h-3.5" />
+                                  <span>Publish</span>
+                                </>
+                              )}
                             </button>
                           </td>
                         </tr>
@@ -2442,6 +2541,83 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               {/* When Event is Selected */}
               {selectedRepComp ? (
                 <div className="space-y-6 py-0">
+                  {/* Event Stats Bar & Bulk Controls */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="p-3.5 bg-[#181b30] rounded-2xl border border-[#292d4a] flex items-center justify-between">
+                      <div>
+                        <div className="text-[10px] font-black uppercase tracking-wider text-slate-400">Total Registered</div>
+                        <div className="text-xl font-black text-white mt-0.5">{compRegistrations.length}</div>
+                      </div>
+                      <Users className="w-6 h-6 text-cyan-400/60" />
+                    </div>
+
+                    <div className="p-3.5 bg-emerald-500/10 rounded-2xl border border-emerald-500/30 flex items-center justify-between">
+                      <div>
+                        <div className="text-[10px] font-black uppercase tracking-wider text-emerald-400">Reported (Present)</div>
+                        <div className="text-xl font-black text-emerald-300 mt-0.5">{reportedCount}</div>
+                      </div>
+                      <CheckCircle2 className="w-6 h-6 text-emerald-400" />
+                    </div>
+
+                    <div className="p-3.5 bg-rose-500/10 rounded-2xl border border-rose-500/30 flex items-center justify-between">
+                      <div>
+                        <div className="text-[10px] font-black uppercase tracking-wider text-rose-400">Absent / Pending</div>
+                        <div className="text-xl font-black text-rose-300 mt-0.5">{absentCount}</div>
+                      </div>
+                      <AlertCircle className="w-6 h-6 text-rose-400" />
+                    </div>
+                  </div>
+
+                  {/* Filter & Action Toolbar */}
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-[#181b30] p-3 rounded-2xl border border-[#292d4a]">
+                    {/* Search & Status Filters */}
+                    <div className="flex items-center gap-2 flex-1 flex-wrap">
+                      <div className="relative flex-1 min-w-[180px]">
+                        <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                        <input
+                          type="text"
+                          value={reportingSearch}
+                          onChange={(e) => setReportingSearch(e.target.value)}
+                          placeholder="Search chest no, name, group..."
+                          className="w-full pl-8 pr-3 py-1.5 bg-[#151728] border border-[#292d4a] rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500"
+                        />
+                      </div>
+
+                      <div className="flex items-center gap-1 bg-[#151728] p-1 rounded-xl border border-[#292d4a]">
+                        {(['All', 'Reported', 'Absent'] as const).map((st) => (
+                          <button
+                            key={st}
+                            type="button"
+                            onClick={() => setReportingStatusFilter(st)}
+                            className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition-all ${
+                              reportingStatusFilter === st
+                                ? 'bg-cyan-600 text-white shadow-sm'
+                                : 'text-slate-400 hover:text-white'
+                            }`}
+                          >
+                            {st}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Bulk Action: Auto Assign Code Letters to All Reported */}
+                    {reportedCount > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          festStore.autoGenerateCodeLetters(selectedRepComp.id, true, true);
+                          setReportingSuccessMsg(`Randomized blind code letters (A-${String.fromCharCode(64 + Math.min(reportedCount, 26))}) generated for all ${reportedCount} reported candidates!`);
+                          onRefresh();
+                        }}
+                        className="px-3 py-1.5 bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500 text-white rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-md shadow-cyan-600/20 transition-all cursor-pointer shrink-0"
+                        title="Generate blind code letters for all reported candidates at once"
+                      >
+                        <Wand2 className="w-3.5 h-3.5" />
+                        <span>Auto-Code All Reported ({reportedCount})</span>
+                      </button>
+                    )}
+                  </div>
 
 
                   {/* Candidates Table */}

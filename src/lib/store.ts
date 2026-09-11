@@ -2843,16 +2843,23 @@ class FestStore {
   }
 
   // Automatically generate code letters (A, B, C...) with optional blind randomized order
-  public autoGenerateCodeLetters(competitionId: string, randomize = false): void {
+  // When onlyReported is true (or by default when some are reported), only generates code letters for reported candidates
+  public autoGenerateCodeLetters(competitionId: string, randomize = true, onlyReported = true): void {
     const data = this.getData();
     let compRegs = data.registrations.filter(r => r.competitionId === competitionId);
     
+    // If onlyReported is true, only assign letters to participants marked as reported (present)
+    let targetRegs = onlyReported ? compRegs.filter(r => r.isReported === true) : compRegs;
+    if (targetRegs.length === 0) {
+      targetRegs = compRegs;
+    }
+
     if (randomize) {
       // Shuffle candidates randomly for blind judging
-      compRegs = [...compRegs].sort(() => Math.random() - 0.5);
+      targetRegs = [...targetRegs].sort(() => Math.random() - 0.5);
     } else {
       // Sort deterministically by participant chest number/userId
-      compRegs = [...compRegs].sort((a, b) => (a.participantUserId || '').localeCompare(b.participantUserId || ''));
+      targetRegs = [...targetRegs].sort((a, b) => (a.participantUserId || '').localeCompare(b.participantUserId || ''));
     }
 
     const getCodeLetter = (idx: number): string => {
@@ -2866,13 +2873,17 @@ class FestStore {
     };
 
     const letterMap = new Map<string, string>();
-    compRegs.forEach((r, idx) => {
+    targetRegs.forEach((r, idx) => {
       letterMap.set(r.id, getCodeLetter(idx));
     });
 
     data.registrations = data.registrations.map(r => {
-      if (r.competitionId === competitionId && letterMap.has(r.id)) {
-        return { ...r, codeLetter: letterMap.get(r.id) };
+      if (r.competitionId === competitionId) {
+        if (letterMap.has(r.id)) {
+          return { ...r, codeLetter: letterMap.get(r.id) };
+        } else if (onlyReported && !r.isReported) {
+          return { ...r, codeLetter: '' };
+        }
       }
       return r;
     });
@@ -2974,6 +2985,22 @@ class FestStore {
     this.saveData(data);
     this.recalculateGroupPoints();
     return newResult;
+  }
+
+  // Unpublish Competition Result
+  public unpublishResult(competitionId: string): void {
+    const data = this.getData();
+    // Remove the published result entry
+    data.results = data.results.filter(r => r.competitionId !== competitionId);
+
+    // Reset competition status
+    data.competitions = data.competitions.map(c =>
+      c.id === competitionId ? { ...c, isPublishedResult: false } : c
+    );
+
+    this.saveData(data);
+    this.recalculateGroupPoints();
+    this.notify();
   }
 
   // Recalculate live total points and medal tallies for all groups
