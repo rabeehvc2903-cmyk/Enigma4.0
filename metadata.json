@@ -1,0 +1,6 @@
+{
+  "name": "Madani College Art Fest Manager",
+  "description": "Bold festival platform for Madani College Art Fest featuring live group leaderboards, competition management, automated participant ID generation, and role-based portals.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
