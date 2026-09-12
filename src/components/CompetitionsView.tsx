@@ -46,11 +46,11 @@ export const CompetitionsView: React.FC<CompetitionsViewProps> = ({ competitions
     return 'pending';
   };
 
-  // Sort competitions strictly: 1. running, 2. pending, 3. completed
+  // Sort competitions strictly: 1. pending, 2. running, 3. completed
   const sortCompetitionsByStatus = (list: Competition[]): Competition[] => {
-    const statusRank: Record<'running' | 'pending' | 'completed', number> = {
-      running: 0,
-      pending: 1,
+    const statusRank: Record<'pending' | 'running' | 'completed', number> = {
+      pending: 0,
+      running: 1,
       completed: 2,
     };
 
@@ -78,10 +78,9 @@ export const CompetitionsView: React.FC<CompetitionsViewProps> = ({ competitions
   // Helper to test if a competition is genuinely scheduled
   const isScheduledCompetition = (comp: Competition): boolean => {
     if (isCompetitionCompleted(comp)) return true;
-    if (!comp.scheduleTime || !comp.scheduleTime.trim()) return false;
-    if (!comp.venue || !comp.venue.trim()) return false;
-    const { dayDate } = normalizeScheduleString(comp.scheduleTime);
-    return Boolean(dayDate && dayDate.trim());
+    if (comp.scheduleTime && comp.scheduleTime.trim() && comp.scheduleTime !== 'Unscheduled / TBA') return true;
+    if (comp.venue && comp.venue.trim()) return true;
+    return false;
   };
 
   // Only scheduled competitions (including completed ones)
@@ -201,7 +200,27 @@ export const CompetitionsView: React.FC<CompetitionsViewProps> = ({ competitions
 
       {/* Scheduled Competitions Grid */}
       {filteredScheduled.length > 0 && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+        <div className="space-y-4">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-purple-500/15 border border-purple-500/30 flex items-center justify-center text-purple-400 shrink-0">
+                <Calendar className="w-4 h-4" />
+              </div>
+              <div>
+                <h2 className="text-lg sm:text-xl font-bold text-white tracking-tight flex items-center gap-2">
+                  Scheduled Competitions
+                  <span className="px-2.5 py-0.5 rounded-full text-xs font-bold font-mono bg-purple-500/15 text-purple-300 border border-purple-500/30">
+                    {filteredScheduled.length}
+                  </span>
+                </h2>
+                <p className="text-xs text-slate-400">
+                  Active festival events sorted by status: Pending, Running, Completed
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
           {filteredScheduled.map((comp) => {
             const status = getCompetitionStatus(comp);
             const isCompleted = status === 'completed';
@@ -261,6 +280,7 @@ export const CompetitionsView: React.FC<CompetitionsViewProps> = ({ competitions
               </div>
             );
           })}
+          </div>
         </div>
       )}
 

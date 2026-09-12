@@ -67,25 +67,10 @@ const formatScheduleTime = (dateStr: string, timeStr: string): string => {
 };
 
 const isCompetitionScheduled = (comp: Competition): boolean => {
-  if (comp.status === 'completed') return true;
-  if (!comp.scheduleTime) return false;
-  const { dayDate } = normalizeScheduleString(comp.scheduleTime);
-  if (!dayDate) return false;
-  
-  const activeDays = festStore.getFestivalDays();
-  if (activeDays.length === 0) {
-    return true; // fallback if no days set up
-  }
-
-  const compFormatted = formatDayDateWithWeekday(dayDate);
-  return activeDays.some((d) => {
-    const dFormatted = formatDayDateWithWeekday(d.date, d.label);
-    return (
-      compFormatted === dFormatted ||
-      (d.date && dayDate.includes(d.date)) ||
-      (d.label && dayDate.toLowerCase().includes(d.label.toLowerCase()))
-    );
-  });
+  if (comp.status === 'completed' || Boolean(comp.isPublishedResult)) return true;
+  if (comp.scheduleTime && comp.scheduleTime.trim() && comp.scheduleTime !== 'Unscheduled / TBA') return true;
+  if (comp.venue && comp.venue.trim()) return true;
+  return false;
 };
 
 // Inline editable row component for Competition Schedule Table
@@ -873,7 +858,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     const list = scheduledUpdatesCompetitions.filter((comp) => {
       // Status filter
       if (updatesStatusFilter !== 'All') {
-        const currentStatus = comp.status || 'pending';
+        const isRunning = comp.status === 'running' || Boolean(comp.isRunning);
+        const isCompleted = comp.status === 'completed' || Boolean(comp.isPublishedResult);
+        const currentStatus = isCompleted ? 'completed' : isRunning ? 'running' : 'pending';
         if (currentStatus !== updatesStatusFilter) return false;
       }
 
@@ -902,13 +889,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       return true;
     });
 
-    const statusRank: Record<'running' | 'pending' | 'completed', number> = {
-      running: 0,
-      pending: 1,
+    const statusRank: Record<'pending' | 'running' | 'completed', number> = {
+      pending: 0,
+      running: 1,
       completed: 2,
     };
 
-    const getCompStatus = (c: Competition): 'running' | 'pending' | 'completed' => {
+    const getCompStatus = (c: Competition): 'pending' | 'running' | 'completed' => {
       if (c.status === 'completed' || Boolean(c.isPublishedResult)) return 'completed';
       if (c.status === 'running' || Boolean(c.isRunning)) return 'running';
       return 'pending';
@@ -921,9 +908,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     });
   }, [scheduledUpdatesCompetitions, updatesStatusFilter, updatesCategoryFilter, updatesStageFilter, updatesSearch]);
 
-  const updatesRunningCount = useMemo(() => scheduledUpdatesCompetitions.filter(c => c.status === 'running').length, [scheduledUpdatesCompetitions]);
-  const updatesPendingCount = useMemo(() => scheduledUpdatesCompetitions.filter(c => c.status === 'pending' || !c.status).length, [scheduledUpdatesCompetitions]);
-  const updatesCompletedCount = useMemo(() => scheduledUpdatesCompetitions.filter(c => c.status === 'completed').length, [scheduledUpdatesCompetitions]);
+  const updatesPendingCount = useMemo(() => scheduledUpdatesCompetitions.filter(c => c.status !== 'completed' && !c.isPublishedResult && c.status !== 'running' && !c.isRunning).length, [scheduledUpdatesCompetitions]);
+  const updatesRunningCount = useMemo(() => scheduledUpdatesCompetitions.filter(c => (c.status === 'running' || Boolean(c.isRunning)) && c.status !== 'completed' && !c.isPublishedResult).length, [scheduledUpdatesCompetitions]);
+  const updatesCompletedCount = useMemo(() => scheduledUpdatesCompetitions.filter(c => c.status === 'completed' || Boolean(c.isPublishedResult)).length, [scheduledUpdatesCompetitions]);
   const isUpdatesFiltered = Boolean(updatesSearch.trim() || updatesStatusFilter !== 'All' || updatesCategoryFilter !== 'All' || updatesStageFilter !== 'All');
 
   // --- ADD / EDIT COMPETITION STATE ---
@@ -4111,6 +4098,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
               <button
                 type="button"
+                onClick={() => setUpdatesStatusFilter('pending')}
+                className={`px-3 py-1 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                  updatesStatusFilter === 'pending'
+                    ? 'bg-amber-600 text-white shadow-md shadow-amber-600/30'
+                    : 'bg-[#181b30] text-amber-400/80 hover:text-amber-300 border border-amber-500/20'
+                }`}
+              >
+                <span className="w-2 h-2 rounded-full bg-amber-500" />
+                <span>Pending</span>
+                <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-amber-500/20 text-amber-300 font-mono">
+                  {updatesPendingCount}
+                </span>
+              </button>
+
+              <button
+                type="button"
                 onClick={() => setUpdatesStatusFilter('running')}
                 className={`px-3 py-1 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
                   updatesStatusFilter === 'running'
@@ -4125,22 +4128,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <span>Running</span>
                 <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-emerald-500/20 text-emerald-300 font-mono">
                   {updatesRunningCount}
-                </span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setUpdatesStatusFilter('pending')}
-                className={`px-3 py-1 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
-                  updatesStatusFilter === 'pending'
-                    ? 'bg-amber-600 text-white shadow-md shadow-amber-600/30'
-                    : 'bg-[#181b30] text-amber-400/80 hover:text-amber-300 border border-amber-500/20'
-                }`}
-              >
-                <span className="w-2 h-2 rounded-full bg-amber-500" />
-                <span>Pending</span>
-                <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-amber-500/20 text-amber-300 font-mono">
-                  {updatesPendingCount}
                 </span>
               </button>
 

@@ -8,25 +8,10 @@ import { formatDayDateWithWeekday, normalizeScheduleString } from '../lib/schedu
 import logoImg from '../assets/images/fest_logo_flat_1785671917562.jpg';
 
 const isCompetitionScheduled = (comp: Competition): boolean => {
-  if (comp.status === 'completed') return true;
-  if (!comp.scheduleTime) return false;
-  const { dayDate } = normalizeScheduleString(comp.scheduleTime);
-  if (!dayDate) return false;
-  
-  const activeDays = festStore.getFestivalDays();
-  if (activeDays.length === 0) {
-    return true; // fallback if no days set up
-  }
-
-  const compFormatted = formatDayDateWithWeekday(dayDate);
-  return activeDays.some((d) => {
-    const dFormatted = formatDayDateWithWeekday(d.date, d.label);
-    return (
-      compFormatted === dFormatted ||
-      (d.date && dayDate.includes(d.date)) ||
-      (d.label && dayDate.toLowerCase().includes(d.label.toLowerCase()))
-    );
-  });
+  if (comp.status === 'completed' || Boolean(comp.isPublishedResult)) return true;
+  if (comp.scheduleTime && comp.scheduleTime.trim() && comp.scheduleTime !== 'Unscheduled / TBA') return true;
+  if (comp.venue && comp.venue.trim()) return true;
+  return false;
 };
 
 interface PublicHomeProps {

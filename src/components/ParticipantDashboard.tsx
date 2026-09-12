@@ -44,9 +44,9 @@ export const ParticipantDashboard: React.FC<ParticipantDashboardProps> = ({
     return 'pending';
   };
 
-  // Sorted competitions: running first, then pending, then completed
+  // Sorted competitions: pending first, then running, then completed
   const sortedCompetitions = [...myCompetitions].sort((a, b) => {
-    const statusRank = { running: 0, pending: 1, completed: 2 };
+    const statusRank = { pending: 0, running: 1, completed: 2 };
     const rankDiff = statusRank[getCompetitionStatus(a)] - statusRank[getCompetitionStatus(b)];
     if (rankDiff !== 0) return rankDiff;
     return (a.name || '').localeCompare(b.name || '');

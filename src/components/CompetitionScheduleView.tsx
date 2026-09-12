@@ -237,13 +237,13 @@ export const CompetitionScheduleView: React.FC<CompetitionScheduleViewProps> = (
       return true;
     });
 
-    const statusRank: Record<'running' | 'pending' | 'completed', number> = {
-      running: 0,
-      pending: 1,
+    const statusRank: Record<'pending' | 'running' | 'completed', number> = {
+      pending: 0,
+      running: 1,
       completed: 2,
     };
 
-    const getCompStatus = (c: Competition): 'running' | 'pending' | 'completed' => {
+    const getCompStatus = (c: Competition): 'pending' | 'running' | 'completed' => {
       if (isCompCompleted(c)) return 'completed';
       if (c.status === 'running' || Boolean(c.isRunning)) return 'running';
       return 'pending';
