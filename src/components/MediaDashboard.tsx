@@ -67,7 +67,7 @@ export const MediaDashboard: React.FC<MediaDashboardProps> = ({
   onSignOut,
 }) => {
   // Navigation tab matching the requested menu structure
-  const [activeTab, setActiveTab] = useState<MediaTabType>('poster-template');
+  const [activeTab, setActiveTab] = useState<MediaTabType>('results');
 
   // --- POSTER TEMPLATE STATE ---
   const [posterConfig, setPosterConfig] = useState<PosterTemplateConfig>(() => festStore.getPosterTemplateConfig());
@@ -304,9 +304,9 @@ export const MediaDashboard: React.FC<MediaDashboardProps> = ({
     });
   }, [competitions, results, registrations]);
 
-  // Filtered List
+  // Filtered and Sorted List
   const filteredCompResults = useMemo(() => {
-    return combinedCompResults.filter(item => {
+    const list = combinedCompResults.filter(item => {
       const matchesCategory = resultCategoryFilter === 'All' || item.comp.category === resultCategoryFilter;
       const matchesStatus = resultStatusFilter === 'All' || item.status === resultStatusFilter;
       
@@ -319,6 +319,18 @@ export const MediaDashboard: React.FC<MediaDashboardProps> = ({
         (item.publishedResult?.firstPlaceGroupName && item.publishedResult.firstPlaceGroupName.toLowerCase().includes(q));
 
       return matchesCategory && matchesStatus && matchesQuery;
+    });
+
+    const statusPriority: Record<'Judge Evaluated' | 'Pending' | 'Published', number> = {
+      'Judge Evaluated': 0,
+      'Pending': 1,
+      'Published': 2,
+    };
+
+    return [...list].sort((a, b) => {
+      const rankDiff = statusPriority[a.status] - statusPriority[b.status];
+      if (rankDiff !== 0) return rankDiff;
+      return (a.comp.name || '').localeCompare(b.comp.name || '');
     });
   }, [combinedCompResults, resultCategoryFilter, resultStatusFilter, resultSearchQuery]);
 
@@ -344,7 +356,7 @@ export const MediaDashboard: React.FC<MediaDashboardProps> = ({
                 </span>
               </div>
               <p className="text-xs text-slate-400 mt-0.5">
-                Official Media Desk • Poster Templates, Results Hub, Landscape Event Posters & Fest Branding
+                Official Media Desk • Results Hub & Landscape Event Posters
               </p>
             </div>
           </div>
@@ -366,18 +378,6 @@ export const MediaDashboard: React.FC<MediaDashboardProps> = ({
       {/* Main Navigation Menu Tabs (Arranged like Admin Settings Tab) */}
       <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
         <button
-          onClick={() => setActiveTab('poster-template')}
-          className={`px-4 py-2.5 rounded-2xl text-xs font-black transition-all flex items-center gap-2 shrink-0 cursor-pointer ${
-            activeTab === 'poster-template'
-              ? 'bg-cyan-600 text-white shadow-lg shadow-cyan-600/30 border border-cyan-400/40'
-              : 'bg-[#151728] text-slate-300 hover:text-white border border-[#292d4a] hover:border-cyan-500/40'
-          }`}
-        >
-          <Sparkles className="w-4 h-4 text-cyan-300" />
-          <span>Result Poster Template</span>
-        </button>
-
-        <button
           onClick={() => setActiveTab('results')}
           className={`px-4 py-2.5 rounded-2xl text-xs font-black transition-all flex items-center gap-2 shrink-0 cursor-pointer ${
             activeTab === 'results'
@@ -387,18 +387,6 @@ export const MediaDashboard: React.FC<MediaDashboardProps> = ({
         >
           <FileText className="w-4 h-4 text-amber-400" />
           <span>Result ({combinedCompResults.length})</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('branding')}
-          className={`px-4 py-2.5 rounded-2xl text-xs font-black transition-all flex items-center gap-2 shrink-0 cursor-pointer ${
-            activeTab === 'branding'
-              ? 'bg-cyan-600 text-white shadow-lg shadow-cyan-600/30 border border-cyan-400/40'
-              : 'bg-[#151728] text-slate-300 hover:text-white border border-[#292d4a] hover:border-cyan-500/40'
-          }`}
-        >
-          <Palette className="w-4 h-4 text-purple-400" />
-          <span>Festival Logo & Theme</span>
         </button>
 
         <button
@@ -652,28 +640,6 @@ export const MediaDashboard: React.FC<MediaDashboardProps> = ({
       {/* ======================================================== */}
       {activeTab === 'results' && (
         <div className="poster-card p-6 sm:p-8 bg-[#151728] rounded-3xl border border-[#292d4a] space-y-6 shadow-xl animate-fadeIn">
-          
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#292d4a] pb-4">
-            <div>
-              <h2 className="text-lg sm:text-xl font-black text-white flex items-center gap-2">
-                <FileText className="w-5 h-5 text-amber-400" />
-                <span>Festival Results Hub (Published & Unpublished)</span>
-              </h2>
-              <p className="text-xs text-slate-400 mt-0.5">
-                Generate high-resolution result posters, copy press releases, and view confidential judge valuations.
-              </p>
-            </div>
-
-            {/* Quick Status Stats */}
-            <div className="flex items-center gap-2 text-xs font-bold shrink-0 flex-wrap">
-              <span className="px-3 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-400">
-                ✓ {results.length} Published
-              </span>
-              <span className="px-3 py-1 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-400">
-                ⏳ {combinedCompResults.filter(c => c.status === 'Judge Evaluated').length} Judge Evaluated
-              </span>
-            </div>
-          </div>
 
           {publishSuccessMsg && (
             <div className="p-3.5 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl text-xs text-emerald-300 font-bold flex items-center gap-2 animate-fadeIn">
@@ -707,7 +673,7 @@ export const MediaDashboard: React.FC<MediaDashboardProps> = ({
 
             {/* Status Filter Buttons */}
             <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
-              {(['All', 'Published', 'Judge Evaluated', 'Pending'] as const).map(st => (
+              {(['All', 'Judge Evaluated', 'Pending', 'Published'] as const).map(st => (
                 <button
                   key={st}
                   type="button"
@@ -722,8 +688,8 @@ export const MediaDashboard: React.FC<MediaDashboardProps> = ({
                       : 'bg-[#151728] border-[#292d4a] text-slate-400 hover:text-white'
                   }`}
                 >
-                  {st === 'Published' && '✓ '}
                   {st === 'Judge Evaluated' && '⚖️ '}
+                  {st === 'Published' && '✓ '}
                   {st}
                 </button>
               ))}
