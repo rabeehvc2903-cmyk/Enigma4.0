@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { MessageSquare, Send, Heart, X, Sparkles, Trash2, Lock, Clock, Settings, ShieldAlert, CheckCircle2 } from 'lucide-react';
 import { UserProfile, CommentItem, CommentSettings } from '../types';
 import { festStore } from '../lib/store';
@@ -66,7 +66,29 @@ export const CommentSection: React.FC<CommentSectionProps> = ({
   const currentUserId = currentUser?.userId || currentUser?.id || festStore.getClientDeviceId();
   const currentAuthorName = currentUser?.name;
 
-  const lastCommentTime = festStore.getUserLastCommentTime(currentUserId, currentAuthorName);
+  const lastCommentTime = useMemo(() => {
+    const cleanUserId = currentUserId?.trim();
+    const cleanAuthorName = currentAuthorName?.trim().toLowerCase();
+
+    const userComments = comments.filter((c) => {
+      if (cleanUserId && c.authorId && c.authorId === cleanUserId) return true;
+      if (cleanAuthorName && c.authorName && c.authorName.trim().toLowerCase() === cleanAuthorName) return true;
+      return false;
+    });
+
+    if (userComments.length === 0) return null;
+
+    let newest = 0;
+    for (const c of userComments) {
+      if (c.createdAt) {
+        const t = new Date(c.createdAt).getTime();
+        if (!isNaN(t) && t > newest) {
+          newest = t;
+        }
+      }
+    }
+    return newest > 0 ? newest : null;
+  }, [comments, currentUserId, currentAuthorName]);
 
   const cooldownMinutes = typeof commentSettings.cooldownMinutes === 'number' ? commentSettings.cooldownMinutes : 10;
   const cooldownMs = cooldownMinutes * 60 * 1000;

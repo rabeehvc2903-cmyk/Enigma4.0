@@ -3242,7 +3242,16 @@ class FestStore {
 
     if (data.comments && validComments.length !== data.comments.length) {
       data.comments = validComments;
-      this.saveData(data);
+      this.inMemoryState = data;
+      try {
+        localStorage.setItem(STORE_KEY, JSON.stringify(data));
+      } catch (err) {
+        console.warn('LocalStorage limit exceeded while pruning comments.', err);
+      }
+      setTimeout(() => {
+        this.notify();
+        this.syncToCloud(data, false);
+      }, 0);
     }
 
     return validComments;
