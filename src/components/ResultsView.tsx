@@ -1,10 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { LeaderboardEntry, Result, Competition } from '../types';
-import { Award, CheckCircle2, Search, SlidersHorizontal, X, Crown, Trophy, Sparkles, Image as ImageIcon } from 'lucide-react';
+import { Award, CheckCircle2, Search, SlidersHorizontal, X, Crown, Trophy } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { ParticipantAvatar } from './ParticipantAvatar';
 import { festStore, formatCompetitionName } from '../lib/store';
-import { ResultPosterModal } from './ResultPosterModal';
 
 interface ResultsViewProps {
   leaderboard?: LeaderboardEntry[];
@@ -21,7 +20,6 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
   const [categoryFilter, setCategoryFilter] = useState('All');
   const [groupFilter, setGroupFilter] = useState('All');
   const [showFilters, setShowFilters] = useState(false);
-  const [activePosterResult, setActivePosterResult] = useState<Result | null>(null);
 
   const registrations = festStore.getRegistrations();
 
@@ -384,31 +382,12 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
                     </div>
                   </div>
 
-                  {/* Poster Generation Action */}
-                  <div className="pt-2 border-t border-[#292d4a]/50 flex items-center justify-end">
-                    <button
-                      onClick={() => setActivePosterResult(res)}
-                      className="px-3 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-amber-300 hover:text-amber-200 text-xs font-black transition-all flex items-center gap-1.5 shadow-sm cursor-pointer"
-                    >
-                      <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                      <span>Create Poster</span>
-                    </button>
-                  </div>
-
                 </div>
               );
             })}
           </div>
         )}
       </section>
-
-      {/* Result Poster Generator Modal */}
-      <ResultPosterModal
-        isOpen={!!activePosterResult}
-        result={activePosterResult}
-        competition={competitions.find(c => c.id === activePosterResult?.competitionId)}
-        onClose={() => setActivePosterResult(null)}
-      />
 
     </div>
   );
