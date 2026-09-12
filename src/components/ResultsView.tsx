@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { LeaderboardEntry, Result, Competition } from '../types';
-import { Award, CheckCircle2, Search, SlidersHorizontal, X, Crown, Trophy, Sparkles, Image as ImageIcon, Scale } from 'lucide-react';
+import { Award, CheckCircle2, Search, SlidersHorizontal, X, Crown, Trophy, Sparkles, Image as ImageIcon } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { ParticipantAvatar } from './ParticipantAvatar';
 import { festStore, formatCompetitionName } from '../lib/store';
@@ -22,7 +22,6 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
   const [groupFilter, setGroupFilter] = useState('All');
   const [showFilters, setShowFilters] = useState(false);
   const [activePosterResult, setActivePosterResult] = useState<Result | null>(null);
-  const [expandedDetails, setExpandedDetails] = useState<Record<string, boolean>>({});
 
   const registrations = festStore.getRegistrations();
 
@@ -385,87 +384,8 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
                     </div>
                   </div>
 
-                  {/* Detailed Points Collapsible */}
-                  {res.useDetailedPoints && res.participantPointsMap && (
-                    <div className="pt-2 border-t border-[#292d4a]/40 space-y-2">
-                      <button
-                        onClick={() => setExpandedDetails(prev => ({ ...prev, [res.id]: !prev[res.id] }))}
-                        className="w-full py-1.5 px-3 rounded-xl bg-[#181a33]/80 hover:bg-[#181a33] text-purple-300 hover:text-white text-[11px] font-bold transition-all flex items-center justify-between border border-[#292d4a]/40"
-                      >
-                        <span className="flex items-center gap-1.5">
-                          <Scale className="w-3.5 h-3.5" />
-                          <span>{expandedDetails[res.id] ? 'Hide' : 'Show'} Team Point Breakdown</span>
-                        </span>
-                        <span>{expandedDetails[res.id] ? '▲' : '▼'}</span>
-                      </button>
-
-                      {expandedDetails[res.id] && (
-                        <div className="overflow-hidden rounded-xl border border-[#292d4a]/50 bg-[#151728]/60 text-[11px] animate-fadeIn">
-                          <table className="w-full text-left border-collapse">
-                            <thead>
-                              <tr className="bg-[#181a33] border-b border-[#292d4a]/60 text-[9px] font-extrabold text-slate-400 uppercase tracking-wider">
-                                <th className="py-2 px-2.5">Participant</th>
-                                <th className="py-2 px-2 text-center">Score</th>
-                                <th className="py-2 px-2 text-center">Grade</th>
-                                <th className="py-2 px-2 text-center">Comp</th>
-                                <th className="py-2 px-2 text-center">Perf</th>
-                                <th className="py-2 pr-2.5 text-right">Total</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-[#292d4a]/30 text-slate-300 font-medium">
-                              {Object.keys(res.participantPointsMap)
-                                .map(regId => {
-                                  const item = res.participantPointsMap![regId];
-                                  const reg = registrations.find(r => r.id === regId);
-                                  return {
-                                    id: regId,
-                                    name: festStore.getParticipantFullName(reg?.participantName || 'Participant', regId),
-                                    group: reg?.groupName || '',
-                                    ...item
-                                  };
-                                })
-                                .sort((a, b) => b.score - a.score)
-                                .map((item, idx) => (
-                                  <tr key={item.id} className="hover:bg-[#1f223d]/20 transition-colors">
-                                    <td className="py-2 px-2.5">
-                                      <div className="font-bold text-white truncate max-w-[100px]" title={item.name}>
-                                        {item.name}
-                                      </div>
-                                      <div className="text-[9px] text-slate-400 truncate max-w-[100px]" title={item.group}>
-                                        {item.group}
-                                      </div>
-                                    </td>
-                                    <td className="py-2 px-2 text-center font-mono font-bold text-white">
-                                      {item.score}
-                                    </td>
-                                    <td className="py-2 px-2 text-center">
-                                      <span className="px-1 py-0.5 rounded text-[9px] font-black bg-purple-500/10 text-purple-300 border border-purple-500/20">
-                                        {item.grade}
-                                      </span>
-                                    </td>
-                                    <td className="py-2 px-2 text-center font-mono text-amber-400">
-                                      +{item.competitionPoints}
-                                    </td>
-                                    <td className="py-2 px-2 text-center font-mono text-purple-400">
-                                      +{item.performancePoints}
-                                    </td>
-                                    <td className="py-2 pr-2.5 text-right font-mono font-bold text-emerald-400">
-                                      {item.totalPoints}
-                                    </td>
-                                  </tr>
-                                ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
                   {/* Poster Generation Action */}
-                  <div className="pt-2 border-t border-[#292d4a]/50 flex items-center justify-between">
-                    <span className="text-[11px] text-slate-400">
-                      Official Press & Social Asset
-                    </span>
+                  <div className="pt-2 border-t border-[#292d4a]/50 flex items-center justify-end">
                     <button
                       onClick={() => setActivePosterResult(res)}
                       className="px-3 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-amber-300 hover:text-amber-200 text-xs font-black transition-all flex items-center gap-1.5 shadow-sm cursor-pointer"

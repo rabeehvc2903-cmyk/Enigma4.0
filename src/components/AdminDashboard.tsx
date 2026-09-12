@@ -2430,37 +2430,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         const scheduledComps = competitions.filter(isCompetitionScheduled);
         const selectedRepComp = scheduledComps.find(c => c.id === reportingCompId);
         const compRegistrations = reportingCompId ? registrations.filter(r => r.competitionId === reportingCompId) : [];
-        const reportedCount = compRegistrations.filter(r => r.isReported === true).length;
-        const absentCount = compRegistrations.length - reportedCount;
 
         const compCategoryList = Array.from(new Set(scheduledComps.map(c => c.category || 'General')));
         const reportingCategories = ['All', ...compCategoryList];
 
-        const filteredCandidates = compRegistrations
-          .filter(reg => {
-            if (reportingStatusFilter === 'Reported' && !reg.isReported) return false;
-            if (reportingStatusFilter === 'Absent' && reg.isReported) return false;
-            if (reportingSearch.trim()) {
-              const q = reportingSearch.toLowerCase().trim();
-              const matchesName = reg.participantName.toLowerCase().includes(q);
-              const matchesId = (reg.participantUserId || '').toLowerCase().includes(q);
-              const matchesGroup = (reg.groupName || '').toLowerCase().includes(q);
-              const matchesCode = (reg.codeLetter || '').toLowerCase().includes(q);
-              return matchesName || matchesId || matchesGroup || matchesCode;
-            }
-            return true;
-          })
-          .sort((a, b) => {
-            const aReported = a.isReported === true ? 1 : 0;
-            const bReported = b.isReported === true ? 1 : 0;
-            if (aReported !== bReported) {
-              return bReported - aReported; // Reported participants move to top
-            }
-            if (a.isReported && b.isReported && a.codeLetter && b.codeLetter) {
-              return a.codeLetter.localeCompare(b.codeLetter);
-            }
-            return 0;
-          });
+        const filteredCandidates = [...compRegistrations].sort((a, b) => {
+          const aReported = a.isReported === true ? 1 : 0;
+          const bReported = b.isReported === true ? 1 : 0;
+          if (aReported !== bReported) {
+            return bReported - aReported; // Reported participants move to top
+          }
+          if (a.isReported && b.isReported && a.codeLetter && b.codeLetter) {
+            return a.codeLetter.localeCompare(b.codeLetter);
+          }
+          return 0;
+        });
 
         // Group color helper
         const getGroupColor = (gId?: string) => {
@@ -2588,130 +2572,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               {/* When Event is Selected */}
               {selectedRepComp ? (
                 <div className="space-y-6 py-0">
-                  {/* Event Stats Bar & Bulk Controls */}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <div className="p-3.5 bg-[#181b30] rounded-2xl border border-[#292d4a] flex items-center justify-between">
-                      <div>
-                        <div className="text-[10px] font-black uppercase tracking-wider text-slate-400">Total Registered</div>
-                        <div className="text-xl font-black text-white mt-0.5">{compRegistrations.length}</div>
-                      </div>
-                      <Users className="w-6 h-6 text-cyan-400/60" />
-                    </div>
-
-                    <div className="p-3.5 bg-emerald-500/10 rounded-2xl border border-emerald-500/30 flex items-center justify-between">
-                      <div>
-                        <div className="text-[10px] font-black uppercase tracking-wider text-emerald-400">Reported (Present)</div>
-                        <div className="text-xl font-black text-emerald-300 mt-0.5">{reportedCount}</div>
-                      </div>
-                      <CheckCircle2 className="w-6 h-6 text-emerald-400" />
-                    </div>
-
-                    <div className="p-3.5 bg-rose-500/10 rounded-2xl border border-rose-500/30 flex items-center justify-between">
-                      <div>
-                        <div className="text-[10px] font-black uppercase tracking-wider text-rose-400">Absent / Pending</div>
-                        <div className="text-xl font-black text-rose-300 mt-0.5">{absentCount}</div>
-                      </div>
-                      <AlertCircle className="w-6 h-6 text-rose-400" />
-                    </div>
-                  </div>
-
-                  {/* Filter & Action Toolbar */}
-                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-[#181b30] p-3 rounded-2xl border border-[#292d4a]">
-                    {/* Search & Status Filters */}
-                    <div className="flex items-center gap-2 flex-1 flex-wrap">
-                      <div className="relative flex-1 min-w-[180px]">
-                        <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                        <input
-                          type="text"
-                          value={reportingSearch}
-                          onChange={(e) => setReportingSearch(e.target.value)}
-                          placeholder="Search chest no, name, group..."
-                          className="w-full pl-8 pr-3 py-1.5 bg-[#151728] border border-[#292d4a] rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500"
-                        />
-                      </div>
-
-                      <div className="flex items-center gap-1 bg-[#151728] p-1 rounded-xl border border-[#292d4a]">
-                        {(['All', 'Reported', 'Absent'] as const).map((st) => (
-                          <button
-                            key={st}
-                            type="button"
-                            onClick={() => setReportingStatusFilter(st)}
-                            className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition-all ${
-                              reportingStatusFilter === st
-                                ? 'bg-cyan-600 text-white shadow-sm'
-                                : 'text-slate-400 hover:text-white'
-                            }`}
-                          >
-                            {st}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Bulk Action Toolbar */}
-                    <div className="flex items-center gap-2 flex-wrap">
-                      {reportedCount > 0 && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            festStore.autoGenerateCodeLetters(selectedRepComp.id, true, true);
-                            setReportingSuccessMsg(`Randomized blind code letters (A-${String.fromCharCode(64 + Math.min(reportedCount, 26))}) generated for all ${reportedCount} reported candidates!`);
-                            onRefresh();
-                          }}
-                          className="px-3 py-1.5 bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500 text-white rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-md shadow-cyan-600/20 transition-all cursor-pointer shrink-0"
-                          title="Generate blind code letters for all reported candidates at once"
-                        >
-                          <Wand2 className="w-3.5 h-3.5" />
-                          <span>Auto-Code Reported ({reportedCount})</span>
-                        </button>
-                      )}
-
-                      {compRegistrations.length > 0 && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            festStore.bulkUpdateReporting(selectedRepComp.id, true);
-                            festStore.autoGenerateCodeLetters(selectedRepComp.id, true, true);
-                            setReportingSuccessMsg(`Marked all ${compRegistrations.length} participants as Reported & generated code letters!`);
-                            onRefresh();
-                          }}
-                          className="px-3 py-1.5 bg-[#151728] hover:bg-[#1e2238] text-slate-300 hover:text-white border border-[#292d4a] rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer shrink-0"
-                          title="Mark all participants as reported and generate code letters"
-                        >
-                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                          <span>Report All & Code</span>
-                        </button>
-                      )}
-
-                      {compRegistrations.some(r => !!r.codeLetter) && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            festStore.clearCompetitionCodeLetters(selectedRepComp.id);
-                            setReportingSuccessMsg(`Cleared code letters for this event.`);
-                            onRefresh();
-                          }}
-                          className="px-3 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer shrink-0"
-                          title="Reset/clear all code letters for this competition"
-                        >
-                          <RotateCcw className="w-3.5 h-3.5 text-rose-400" />
-                          <span>Clear Codes</span>
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-
                   {/* Candidates Table */}
-                  {compRegistrations.length === 0 ? (
+                  {filteredCandidates.length === 0 ? (
                     <div className="p-8 text-center bg-[#181b30] rounded-2xl border border-[#292d4a] text-slate-400">
                       <Users className="w-10 h-10 mx-auto text-slate-600 mb-2" />
                       <p className="text-sm font-bold text-slate-300">No participants registered for this event yet.</p>
                       <p className="text-xs text-slate-500 mt-1">Group leaders must register participants first.</p>
-                    </div>
-                  ) : filteredCandidates.length === 0 ? (
-                    <div className="p-6 text-center bg-[#181b30] rounded-2xl border border-[#292d4a] text-slate-400">
-                      <p className="text-xs font-bold text-slate-300">No participants match the current search or status filter.</p>
                     </div>
                   ) : (
                     <div className="overflow-x-auto rounded-2xl border border-[#292d4a] bg-[#181b30]">

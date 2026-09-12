@@ -217,3 +217,22 @@
   }
 }
 
+/* Group Point Status Capsule Neon Glow */
+.group-capsule-glow {
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 
+    0 0 14px var(--glow-color-bright, rgba(56, 189, 248, 0.7)),
+    0 0 28px var(--glow-color-mid, rgba(56, 189, 248, 0.4)),
+    0 0 45px var(--glow-color-soft, rgba(56, 189, 248, 0.2)),
+    inset 0 0 10px var(--glow-color-inner, rgba(56, 189, 248, 0.25));
+}
+
+.group-capsule-glow:hover {
+  transform: scale(1.02);
+  box-shadow: 
+    0 0 18px var(--glow-color-bright, rgba(56, 189, 248, 0.9)),
+    0 0 36px var(--glow-color-mid, rgba(56, 189, 248, 0.6)),
+    0 0 55px var(--glow-color-soft, rgba(56, 189, 248, 0.3)),
+    inset 0 0 14px var(--glow-color-inner, rgba(56, 189, 248, 0.35));
+}
+

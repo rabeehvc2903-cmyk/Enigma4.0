@@ -111,22 +111,40 @@ export const PublicHome: React.FC<PublicHomeProps> = ({
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 sm:gap-4">
             {leaderboard.map((group, idx) => {
               // Group Theme Color dynamically from group settings or fallback palette
-              const defaultPalette = ['#eab308', '#38bdf8', '#22c55e', '#a855f7', '#ec4899', '#f97316'];
-              const themeColor = (group.color && group.color.trim()) ? group.color : defaultPalette[idx % defaultPalette.length];
+              const defaultPalette = ['#38bdf8', '#22c55e', '#ec4899', '#eab308', '#a855f7', '#f97316'];
+              const rawColor = (group.color && group.color.trim()) ? group.color.trim() : defaultPalette[idx % defaultPalette.length];
+
+              let hexColor = rawColor;
+              if (rawColor.startsWith('#')) {
+                if (rawColor.length === 4) {
+                  hexColor = `#${rawColor[1]}${rawColor[1]}${rawColor[2]}${rawColor[2]}${rawColor[3]}${rawColor[3]}`;
+                } else if (rawColor.length >= 7) {
+                  hexColor = rawColor.slice(0, 7);
+                }
+              }
 
               return (
                 <div
                   key={group.groupId}
-                  className="px-6 py-3.5 sm:py-4 bg-[#141624] border-[3px] rounded-full flex items-center justify-between gap-4 transition-all duration-200 hover:scale-[1.02] shadow-lg"
+                  className="group-capsule-glow px-6 py-3.5 sm:py-4 bg-[#141624] border-[3px] rounded-full flex items-center justify-between gap-4 cursor-default select-none"
                   style={{
-                    borderColor: themeColor,
-                    boxShadow: `0 0 16px ${themeColor}20`,
+                    borderColor: hexColor,
+                    borderStyle: idx === 0 ? 'groove' : undefined,
+                    borderWidth: idx === 1 ? '1.5px' : idx === 2 ? '0.5px' : undefined,
+                    boxShadow: `0 0 14px ${hexColor}aa, 0 0 28px ${hexColor}60, 0 0 45px ${hexColor}25, inset 0 0 10px ${hexColor}30`,
+                    ['--glow-color-bright' as any]: `${hexColor}cc`,
+                    ['--glow-color-mid' as any]: `${hexColor}70`,
+                    ['--glow-color-soft' as any]: `${hexColor}30`,
+                    ['--glow-color-inner' as any]: `${hexColor}35`,
                   }}
                 >
                   {/* Team Name in Uppercase, Bold, with Group Theme Color */}
                   <span
                     className="font-black uppercase tracking-wider text-xs sm:text-sm md:text-[13px] lg:text-sm truncate"
-                    style={{ color: themeColor }}
+                    style={{ 
+                      color: hexColor,
+                      textShadow: `0 0 10px ${hexColor}60`
+                    }}
                   >
                     {group.groupName}
                   </span>
@@ -134,7 +152,10 @@ export const PublicHome: React.FC<PublicHomeProps> = ({
                   {/* Points Count with Group Theme Color */}
                   <span
                     className="font-black font-mono text-base sm:text-lg lg:text-xl tracking-tight shrink-0"
-                    style={{ color: themeColor }}
+                    style={{ 
+                      color: hexColor,
+                      textShadow: `0 0 12px ${hexColor}70`
+                    }}
                   >
                     {group.totalPoints}
                   </span>
