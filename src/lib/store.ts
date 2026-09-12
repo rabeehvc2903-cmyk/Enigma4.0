@@ -935,23 +935,6 @@ class FestStore {
             return letter;
           };
           const compCounts: Record<string, number> = {};
-          if (!parsed.isReportedDefaultFalseV3) {
-            parsed.registrations = parsed.registrations.map((r: any) => ({
-              ...r,
-              isReported: false,
-              codeLetter: '',
-            }));
-            parsed.isReportedDefaultFalseV3 = true;
-            changed = true;
-          }
-          if (!parsed.noAutoCodeLetterV5) {
-            parsed.registrations = parsed.registrations.map((r: any) => ({
-              ...r,
-              codeLetter: '',
-            }));
-            parsed.noAutoCodeLetterV5 = true;
-            changed = true;
-          }
           parsed.registrations = parsed.registrations.map((r: any) => {
             let updated = { ...r };
             if (updated.isReported === undefined) {
@@ -2816,7 +2799,10 @@ class FestStore {
       if (!isReported) {
         reg.codeLetter = '';
       }
-      this.saveData(data);
+      this.saveData(data, true);
+      if (isSupabaseConfigured) {
+        this.mutateCloudDoc('registrations', registrationId, reg).catch(() => {});
+      }
     }
   }
 
@@ -2825,8 +2811,16 @@ class FestStore {
     const data = this.getData();
     const reg = data.registrations.find(r => r.id === registrationId);
     if (reg) {
-      reg.codeLetter = codeLetter.trim().toUpperCase();
-      this.saveData(data);
+      const sanitized = (codeLetter || '').trim().toUpperCase();
+      reg.codeLetter = sanitized;
+      // If a code letter is explicitly assigned, make sure candidate is marked reported
+      if (sanitized && !reg.isReported) {
+        reg.isReported = true;
+      }
+      this.saveData(data, true);
+      if (isSupabaseConfigured) {
+        this.mutateCloudDoc('registrations', registrationId, reg).catch(() => {});
+      }
     }
   }
 
@@ -2836,7 +2830,10 @@ class FestStore {
     const reg = data.registrations.find(r => r.id === registrationId);
     if (reg) {
       reg.mark = mark.trim();
-      this.saveData(data);
+      this.saveData(data, true);
+      if (isSupabaseConfigured) {
+        this.mutateCloudDoc('registrations', registrationId, reg).catch(() => {});
+      }
     }
   }
 
@@ -2844,7 +2841,7 @@ class FestStore {
   public deleteRegistration(registrationId: string): void {
     const data = this.getData();
     data.registrations = data.registrations.filter(r => r.id !== registrationId);
-    this.saveData(data);
+    this.saveData(data, true);
     if (isSupabaseConfigured) {
       deleteDocFromModularCloud('registrations', registrationId).catch(() => {});
     }
@@ -2863,7 +2860,27 @@ class FestStore {
       }
       return r;
     });
-    this.saveData(data);
+    this.saveData(data, true);
+    if (isSupabaseConfigured) {
+      const updatedRegs = data.registrations.filter(r => r.competitionId === competitionId);
+      this.mutateCloudBatch('registrations', updatedRegs).catch(() => {});
+    }
+  }
+
+  // Clear all assigned code letters for a specific competition
+  public clearCompetitionCodeLetters(competitionId: string): void {
+    const data = this.getData();
+    data.registrations = data.registrations.map(r => {
+      if (r.competitionId === competitionId) {
+        return { ...r, codeLetter: '' };
+      }
+      return r;
+    });
+    this.saveData(data, true);
+    if (isSupabaseConfigured) {
+      const updatedRegs = data.registrations.filter(r => r.competitionId === competitionId);
+      this.mutateCloudBatch('registrations', updatedRegs).catch(() => {});
+    }
   }
 
   // Automatically generate code letters (A, B, C...) with optional blind randomized order
@@ -2912,7 +2929,11 @@ class FestStore {
       return r;
     });
 
-    this.saveData(data);
+    this.saveData(data, true);
+    if (isSupabaseConfigured) {
+      const updatedRegs = data.registrations.filter(r => r.competitionId === competitionId);
+      this.mutateCloudBatch('registrations', updatedRegs).catch(() => {});
+    }
   }
 
   // Delete registration

@@ -258,6 +258,53 @@ const calculatePerformancePoints = (
   return { grade, points };
 };
 
+interface CodeLetterInputProps {
+  initialValue: string;
+  onSave: (val: string) => void;
+  disabled?: boolean;
+}
+
+const CodeLetterInput: React.FC<CodeLetterInputProps> = ({
+  initialValue,
+  onSave,
+  disabled
+}) => {
+  const [val, setVal] = useState(initialValue || '');
+
+  useEffect(() => {
+    setVal(initialValue || '');
+  }, [initialValue]);
+
+  const commit = (text: string) => {
+    const trimmed = text.trim().toUpperCase();
+    if (trimmed !== (initialValue || '').trim().toUpperCase()) {
+      onSave(trimmed);
+    }
+  };
+
+  return (
+    <input
+      type="text"
+      maxLength={3}
+      disabled={disabled}
+      value={val}
+      onChange={(e) => {
+        const next = e.target.value.toUpperCase();
+        setVal(next);
+      }}
+      onBlur={() => commit(val)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          e.currentTarget.blur();
+        }
+      }}
+      placeholder="—"
+      className="w-10 text-center uppercase bg-[#151728] border border-cyan-500/40 focus:border-cyan-400 rounded-lg py-1 text-xs font-black text-cyan-300 focus:outline-none disabled:opacity-40"
+      title="Edit Code Letter (Press Enter or click away to save)"
+    />
+  );
+};
+
 interface AdminDashboardProps {
   currentUser: UserProfile;
   groups: Group[];
@@ -2601,22 +2648,57 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       </div>
                     </div>
 
-                    {/* Bulk Action: Auto Assign Code Letters to All Reported */}
-                    {reportedCount > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          festStore.autoGenerateCodeLetters(selectedRepComp.id, true, true);
-                          setReportingSuccessMsg(`Randomized blind code letters (A-${String.fromCharCode(64 + Math.min(reportedCount, 26))}) generated for all ${reportedCount} reported candidates!`);
-                          onRefresh();
-                        }}
-                        className="px-3 py-1.5 bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500 text-white rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-md shadow-cyan-600/20 transition-all cursor-pointer shrink-0"
-                        title="Generate blind code letters for all reported candidates at once"
-                      >
-                        <Wand2 className="w-3.5 h-3.5" />
-                        <span>Auto-Code All Reported ({reportedCount})</span>
-                      </button>
-                    )}
+                    {/* Bulk Action Toolbar */}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {reportedCount > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            festStore.autoGenerateCodeLetters(selectedRepComp.id, true, true);
+                            setReportingSuccessMsg(`Randomized blind code letters (A-${String.fromCharCode(64 + Math.min(reportedCount, 26))}) generated for all ${reportedCount} reported candidates!`);
+                            onRefresh();
+                          }}
+                          className="px-3 py-1.5 bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500 text-white rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-md shadow-cyan-600/20 transition-all cursor-pointer shrink-0"
+                          title="Generate blind code letters for all reported candidates at once"
+                        >
+                          <Wand2 className="w-3.5 h-3.5" />
+                          <span>Auto-Code Reported ({reportedCount})</span>
+                        </button>
+                      )}
+
+                      {compRegistrations.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            festStore.bulkUpdateReporting(selectedRepComp.id, true);
+                            festStore.autoGenerateCodeLetters(selectedRepComp.id, true, true);
+                            setReportingSuccessMsg(`Marked all ${compRegistrations.length} participants as Reported & generated code letters!`);
+                            onRefresh();
+                          }}
+                          className="px-3 py-1.5 bg-[#151728] hover:bg-[#1e2238] text-slate-300 hover:text-white border border-[#292d4a] rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer shrink-0"
+                          title="Mark all participants as reported and generate code letters"
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                          <span>Report All & Code</span>
+                        </button>
+                      )}
+
+                      {compRegistrations.some(r => !!r.codeLetter) && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            festStore.clearCompetitionCodeLetters(selectedRepComp.id);
+                            setReportingSuccessMsg(`Cleared code letters for this event.`);
+                            onRefresh();
+                          }}
+                          className="px-3 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer shrink-0"
+                          title="Reset/clear all code letters for this competition"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5 text-rose-400" />
+                          <span>Clear Codes</span>
+                        </button>
+                      )}
+                    </div>
                   </div>
 
 
@@ -2663,25 +2745,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
                                 {/* Code Letter Column */}
                                 <td className="py-3 px-4">
-                                  {isPresent ? (
-                                    <div className="flex items-center gap-1.5">
-                                      <input
-                                        type="text"
-                                        maxLength={3}
-                                        value={reg.codeLetter || ''}
-                                        onChange={(e) => {
-                                          festStore.updateRegistrationCodeLetter(reg.id, e.target.value);
-                                          onRefresh();
-                                        }}
-                                        placeholder="—"
-                                        className="w-10 text-center uppercase bg-[#151728] border border-cyan-500/40 focus:border-cyan-400 rounded-lg py-1 text-xs font-black text-cyan-300 focus:outline-none"
-                                        title="Edit Code Letter"
-                                      />
-                                      <span className="text-[10px] text-slate-500 font-mono">Code</span>
-                                    </div>
-                                  ) : (
-                                    <span className="text-slate-500 font-mono text-xs italic">null</span>
-                                  )}
+                                  <div className="flex items-center gap-1.5">
+                                    <CodeLetterInput
+                                      initialValue={reg.codeLetter || ''}
+                                      onSave={(newLetter) => {
+                                        festStore.updateRegistrationCodeLetter(reg.id, newLetter);
+                                        onRefresh();
+                                      }}
+                                    />
+                                    <span className="text-[10px] text-slate-500 font-mono">Code</span>
+                                  </div>
                                 </td>
 
                                 {/* Chest No */}
@@ -2777,15 +2850,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                   {(() => {
                                     const isClosed = selectedRepComp.reportingStatus === 'closed';
                                     const isAbsent = !isPresent;
-                                    const isGenerateDisabled = !!reg.codeLetter || !isClosed || isAbsent;
+                                    const isGenerateDisabled = isAbsent && isClosed;
 
-                                    let tooltip = "Generate Random Code Letter";
-                                    if (!isClosed) {
-                                      tooltip = "Close reporting first to generate code letters";
-                                    } else if (isAbsent) {
-                                      tooltip = "Absent participant cannot generate code letter when reporting is closed";
-                                    } else if (reg.codeLetter) {
-                                      tooltip = `Code Letter Already Generated (${reg.codeLetter})`;
+                                    let tooltip = reg.codeLetter
+                                      ? `Assigned: ${reg.codeLetter}. Click to re-roll random code letter.`
+                                      : "Generate Random Blind Code Letter";
+                                    if (isAbsent && isClosed) {
+                                      tooltip = "Reporting is closed for absent participants";
                                     }
 
                                     return (
@@ -2806,7 +2877,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                           };
 
                                           // Count of present (reported) candidates for this competition
-                                          const reportedRegs = compRegistrations.filter(r => r.isReported === true);
+                                          const reportedRegs = compRegistrations.filter(r => r.isReported === true || r.id === reg.id);
                                           const totalPresentCount = Math.max(reportedRegs.length, 1);
 
                                           // Pool of allowed letters based on present candidates count (e.g. 5 present -> A, B, C, D, E)
@@ -2835,18 +2906,23 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                             generatedLetter = getCodeLetterForIndex(k);
                                           }
 
+                                          if (!reg.isReported) {
+                                            festStore.updateRegistrationReporting(reg.id, true);
+                                          }
                                           festStore.updateRegistrationCodeLetter(reg.id, generatedLetter);
-                                          setReportingSuccessMsg(`Generated code letter "${generatedLetter}" for ${reg.participantName}.`);
+                                          setReportingSuccessMsg(`Assigned code letter "${generatedLetter}" to ${reg.participantName}.`);
                                           onRefresh();
                                         }}
                                         className={`p-2 rounded-xl text-xs font-bold transition-all inline-flex items-center justify-center ${
                                           isGenerateDisabled
                                             ? 'bg-slate-800/40 text-slate-500 border border-[#292d4a] cursor-not-allowed opacity-50'
+                                            : reg.codeLetter
+                                            ? 'bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/40 cursor-pointer'
                                             : 'bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 cursor-pointer'
                                         }`}
                                         title={tooltip}
                                       >
-                                        <Wand2 className={`w-4 h-4 ${isGenerateDisabled ? 'text-slate-500' : 'text-cyan-400'}`} />
+                                        <Wand2 className={`w-4 h-4 ${isGenerateDisabled ? 'text-slate-500' : reg.codeLetter ? 'text-purple-300' : 'text-cyan-400'}`} />
                                       </button>
                                     );
                                   })()}
