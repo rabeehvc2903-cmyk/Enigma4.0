@@ -200,7 +200,7 @@ export const JudgeDashboard: React.FC<JudgeDashboardProps> = ({
       <div className="poster-card p-6 sm:p-8 bg-[#151728] rounded-3xl border border-[#292d4a] shadow-xl relative overflow-hidden">
         <div className="absolute top-0 right-0 w-80 h-80 bg-emerald-600/10 rounded-full blur-3xl pointer-events-none" />
         
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 relative z-10">
+        <div className="flex items-center justify-between gap-4 relative z-10">
           <div className="flex items-center gap-4">
             <div className="w-12 h-12 rounded-2xl bg-emerald-600/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0 shadow-inner">
               <Scale className="w-6 h-6" />
@@ -213,39 +213,8 @@ export const JudgeDashboard: React.FC<JudgeDashboardProps> = ({
                 <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[10px] font-black uppercase tracking-wider border border-emerald-500/30">
                   Judge Portal
                 </span>
-                {assignedComps.length > 0 && (
-                  <span className="px-2.5 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 text-[10px] font-bold border border-indigo-500/30">
-                    {assignedComps.length} Assigned across {assignedStages.length} Stage{assignedStages.length > 1 ? 's' : ''}
-                  </span>
-                )}
               </div>
             </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setActiveTab('valuation')}
-              className={`px-4 py-2 rounded-2xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
-                activeTab === 'valuation'
-                  ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/30'
-                  : 'bg-[#181b30] text-slate-300 hover:text-white border border-[#292d4a]'
-              }`}
-            >
-              <FileSpreadsheet className="w-4 h-4" />
-              <span>Valuation Sheet</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('callsheet')}
-              className={`px-4 py-2 rounded-2xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
-                activeTab === 'callsheet'
-                  ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/30'
-                  : 'bg-[#181b30] text-slate-300 hover:text-white border border-[#292d4a]'
-              }`}
-            >
-              <Calendar className="w-4 h-4" />
-              <span>Call Sheet & Status</span>
-            </button>
           </div>
         </div>
       </div>
@@ -300,16 +269,6 @@ export const JudgeDashboard: React.FC<JudgeDashboardProps> = ({
                 </div>
               )}
 
-              {/* Tie Warning Banner if two or more candidates have the same mark */}
-              {hasAnyTies && (
-                <div className="p-3.5 bg-indigo-500/10 border border-indigo-500/30 rounded-2xl text-xs text-indigo-300 font-semibold flex items-center gap-2.5 shadow-md animate-fadeIn">
-                  <span className="text-base shrink-0">⚖️</span>
-                  <span>
-                    <strong>Tie Detected:</strong> Two or more participants have the same mark. Use the <strong>Rank / Tie-Break (🥇 1st, 🥈 2nd, 🥉 3rd)</strong> buttons below to choose the top positions.
-                  </span>
-                </div>
-              )}
-
               {/* Reported Candidates Table */}
               {reportedCandidates.length === 0 ? (
                 <div className="text-center py-12 px-4 rounded-3xl bg-[#181b30] border border-dashed border-[#292d4a] space-y-3">
@@ -326,15 +285,13 @@ export const JudgeDashboard: React.FC<JudgeDashboardProps> = ({
                   <table className="w-full text-left text-xs">
                     <thead className="bg-[#181b30] text-slate-400 font-bold uppercase text-[10px] tracking-wider border-b border-[#292d4a]">
                       <tr>
-                        <th className="py-3.5 px-4 text-center w-14">Sl No</th>
-                        <th className="py-3.5 px-4 text-center w-24">Code Letter</th>
-                        <th className="py-3.5 px-4">Evaluation / Performance</th>
-                        <th className="py-3.5 px-4 w-36 text-center">Marks / Score</th>
-                        <th className="py-3.5 px-4 w-52 text-center">Rank / Tie-Break</th>
+                        <th className="py-3.5 px-6 text-center w-32">Code Letter</th>
+                        <th className="py-3.5 px-6 text-center">Marks / Score</th>
+                        <th className="py-3.5 px-6 text-center">Rank / Tie-Break</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-[#292d4a] bg-[#121424]">
-                      {reportedCandidates.map((reg, idx) => {
+                      {reportedCandidates.map((reg) => {
                         const currentMark = marksState[reg.id] !== undefined ? marksState[reg.id] : reg.mark || '';
                         const currentRank = judgeRanksState[reg.id] !== undefined ? judgeRanksState[reg.id] : reg.judgeRank;
                         const hasCode = !!reg.codeLetter;
@@ -342,10 +299,7 @@ export const JudgeDashboard: React.FC<JudgeDashboardProps> = ({
 
                         return (
                           <tr key={reg.id} className={`hover:bg-[#181b30]/50 transition-colors ${isTied ? 'bg-indigo-950/20' : ''}`}>
-                            <td className="py-3.5 px-4 text-center font-mono text-slate-400 font-bold">
-                              {idx + 1}
-                            </td>
-                            <td className="py-3.5 px-4 text-center">
+                            <td className="py-3.5 px-6 text-center">
                               {hasCode ? (
                                 <span className="inline-flex items-center justify-center w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-600 to-teal-700 text-white font-black text-base shadow-md">
                                   {reg.codeLetter}
@@ -356,21 +310,7 @@ export const JudgeDashboard: React.FC<JudgeDashboardProps> = ({
                                 </span>
                               )}
                             </td>
-                            <td className="py-3.5 px-4">
-                              <div className="font-bold text-white flex items-center gap-2">
-                                <span>{hasCode ? `Candidate ${reg.codeLetter}` : `Participant #${reg.participantUserId || idx + 1}`}</span>
-                                {!hasCode && (
-                                  <span className="text-[10px] font-normal text-amber-400/90 font-mono">
-                                    ({reg.participantUserId ? `Chest No: ${reg.participantUserId}` : reg.participantName})
-                                  </span>
-                                )}
-                              </div>
-                              <div className="text-[10px] text-slate-400 flex items-center gap-1.5 mt-0.5">
-                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                                <span>Reported On Stage ({getCompStage(selectedComp)})</span>
-                              </div>
-                            </td>
-                            <td className="py-3.5 px-4 text-center">
+                            <td className="py-3.5 px-6 text-center">
                               <div className="inline-flex flex-col items-center gap-1">
                                 <input
                                   type="text"
@@ -386,13 +326,13 @@ export const JudgeDashboard: React.FC<JudgeDashboardProps> = ({
                                 )}
                               </div>
                             </td>
-                            <td className="py-3.5 px-4 text-center">
+                            <td className="py-3.5 px-6 text-center">
                               <div className="inline-flex items-center gap-1 bg-[#0b0c16] p-1 rounded-xl border border-[#292d4a]">
                                 <button
                                   type="button"
                                   onClick={() => handleRankSelect(reg.id, 1)}
                                   title="Choose 1st Place"
-                                  className={`px-2 py-1 rounded-lg text-xs font-black transition-all cursor-pointer ${
+                                  className={`px-2.5 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer ${
                                     currentRank === 1
                                       ? 'bg-amber-500 text-slate-950 shadow-md scale-105'
                                       : 'text-slate-400 hover:text-amber-400 hover:bg-amber-500/10'
@@ -404,7 +344,7 @@ export const JudgeDashboard: React.FC<JudgeDashboardProps> = ({
                                   type="button"
                                   onClick={() => handleRankSelect(reg.id, 2)}
                                   title="Choose 2nd Place"
-                                  className={`px-2 py-1 rounded-lg text-xs font-black transition-all cursor-pointer ${
+                                  className={`px-2.5 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer ${
                                     currentRank === 2
                                       ? 'bg-slate-200 text-slate-950 shadow-md scale-105'
                                       : 'text-slate-400 hover:text-slate-200 hover:bg-slate-300/10'
@@ -416,7 +356,7 @@ export const JudgeDashboard: React.FC<JudgeDashboardProps> = ({
                                   type="button"
                                   onClick={() => handleRankSelect(reg.id, 3)}
                                   title="Choose 3rd Place"
-                                  className={`px-2 py-1 rounded-lg text-xs font-black transition-all cursor-pointer ${
+                                  className={`px-2.5 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer ${
                                     currentRank === 3
                                       ? 'bg-amber-700 text-amber-100 shadow-md scale-105'
                                       : 'text-slate-400 hover:text-amber-500 hover:bg-amber-700/10'
@@ -429,7 +369,7 @@ export const JudgeDashboard: React.FC<JudgeDashboardProps> = ({
                                     type="button"
                                     onClick={() => handleRankSelect(reg.id, undefined)}
                                     title="Clear Rank"
-                                    className="px-1.5 py-1 text-[11px] text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors cursor-pointer"
+                                    className="px-2 py-1.5 text-[11px] text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors cursor-pointer"
                                   >
                                     ✕
                                   </button>
