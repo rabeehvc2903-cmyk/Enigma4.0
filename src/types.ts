@@ -82,6 +82,17 @@ export interface Registration {
   judgeRank?: number;   // 1 = 1st, 2 = 2nd, 3 = 3rd (chosen by judge, especially on tie marks)
 }
 
+export interface WinnerDetail {
+  regId: string;
+  participantName: string;
+  groupId: string;
+  groupName: string;
+  codeLetter?: string;
+  photoUrl?: string;
+  mark?: string;
+  score?: number;
+}
+
 export interface Result {
   id: string;
   competitionId: string;
@@ -103,6 +114,11 @@ export interface Result {
   thirdPlaceGroupId?: string;
   thirdPlaceGroupName?: string;
   thirdPlaceCodeLetter?: string;
+
+  // Multiple winners support for ties or multiple 1st, 2nd, 3rd rankings
+  firstPlaceWinners?: WinnerDetail[];
+  secondPlaceWinners?: WinnerDetail[];
+  thirdPlaceWinners?: WinnerDetail[];
 
   publishedAt: string;
 

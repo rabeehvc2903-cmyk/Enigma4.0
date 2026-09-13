@@ -1,4 +1,4 @@
-import { Group, Competition, UserProfile, Registration, Result, LeaderboardEntry, CategoryType, EventPoster, CountdownConfig, BrandingConfig, SocialLinksConfig, CommentItem, CommentSettings, FestNotification, ParticipantIdConfig, PosterTemplateConfig, StageItem, PerformancePointConfig, PerformancePointRule, LimitRulesConfig, CategoryLimitRule } from '../types';
+import { Group, Competition, UserProfile, Registration, Result, LeaderboardEntry, CategoryType, EventPoster, CountdownConfig, BrandingConfig, SocialLinksConfig, CommentItem, CommentSettings, FestNotification, ParticipantIdConfig, PosterTemplateConfig, StageItem, PerformancePointConfig, PerformancePointRule, LimitRulesConfig, CategoryLimitRule, WinnerDetail } from '../types';
 import { 
   DEFAULT_CATEGORIES, 
   DEFAULT_STAGES, 
@@ -2989,12 +2989,52 @@ class FestStore {
     this.notify();
   }
 
-  // Submit/Publish Competition Result
+  // Helper to extract all 1st, 2nd, 3rd winners from a Result
+  public getResultWinners(res: Result): {
+    first: WinnerDetail[];
+    second: WinnerDetail[];
+    third: WinnerDetail[];
+  } {
+    const data = this.getData();
+    const regs = Array.isArray(data?.registrations) ? data.registrations : INITIAL_REGISTRATIONS;
+
+    const buildWinner = (regId?: string, name?: string, groupId?: string, groupName?: string, code?: string): WinnerDetail | null => {
+      if (!regId && !name) return null;
+      const reg = regId ? regs.find(r => r.id === regId) : undefined;
+      const finalName = this.getParticipantFullName(name || reg?.participantName, regId);
+      return {
+        regId: regId || reg?.id || '',
+        participantName: finalName,
+        groupId: groupId || reg?.groupId || '',
+        groupName: groupName || reg?.groupName || '',
+        codeLetter: code || reg?.codeLetter,
+        photoUrl: this.getParticipantPhotoUrl(finalName, regId || reg?.id),
+        mark: reg?.mark,
+        score: reg?.mark ? Number(reg.mark) : undefined
+      };
+    };
+
+    let first: WinnerDetail[] = (res.firstPlaceWinners && res.firstPlaceWinners.length > 0)
+      ? res.firstPlaceWinners
+      : ([buildWinner(res.firstPlaceRegId, res.firstPlaceParticipantName, res.firstPlaceGroupId, res.firstPlaceGroupName, res.firstPlaceCodeLetter)].filter(Boolean) as WinnerDetail[]);
+
+    let second: WinnerDetail[] = (res.secondPlaceWinners && res.secondPlaceWinners.length > 0)
+      ? res.secondPlaceWinners
+      : ([buildWinner(res.secondPlaceRegId, res.secondPlaceParticipantName, res.secondPlaceGroupId, res.secondPlaceGroupName, res.secondPlaceCodeLetter)].filter(Boolean) as WinnerDetail[]);
+
+    let third: WinnerDetail[] = (res.thirdPlaceWinners && res.thirdPlaceWinners.length > 0)
+      ? res.thirdPlaceWinners
+      : ([buildWinner(res.thirdPlaceRegId, res.thirdPlaceParticipantName, res.thirdPlaceGroupId, res.thirdPlaceGroupName, res.thirdPlaceCodeLetter)].filter(Boolean) as WinnerDetail[]);
+
+    return { first, second, third };
+  }
+
+  // Submit/Publish Competition Result (Supports multiple winners for 1st, 2nd, and 3rd)
   public publishResult(
     competitionId: string,
-    firstPlaceRegId: string,
-    secondPlaceRegId?: string,
-    thirdPlaceRegId?: string,
+    firstPlaceRegIds: string | string[],
+    secondPlaceRegIds?: string | string[],
+    thirdPlaceRegIds?: string | string[],
     useDetailedPoints?: boolean,
     participantPointsMap?: Record<string, {
       competitionPoints: number;
@@ -3008,12 +3048,18 @@ class FestStore {
     const comp = data.competitions.find(c => c.id === competitionId);
     const regs = data.registrations.filter(r => r.competitionId === competitionId);
 
-    const first = regs.find(r => r.id === firstPlaceRegId);
-    const second = regs.find(r => r.id === secondPlaceRegId);
-    const third = regs.find(r => r.id === thirdPlaceRegId);
+    const toArray = (v?: string | string[]): string[] => {
+      if (!v) return [];
+      if (Array.isArray(v)) return v.filter(Boolean);
+      return [v].filter(Boolean);
+    };
 
-    if (!comp || !first) {
-      throw new Error('1st Place winner selection is required!');
+    const firstIds = toArray(firstPlaceRegIds);
+    const secondIds = toArray(secondPlaceRegIds);
+    const thirdIds = toArray(thirdPlaceRegIds);
+
+    if (!comp || firstIds.length === 0) {
+      throw new Error('At least one 1st Place winner selection is required!');
     }
 
     // Verify that the competition has been evaluated & scored by the Judge
@@ -3026,31 +3072,57 @@ class FestStore {
     // Remove old result for this competition if re-publishing
     data.results = data.results.filter(r => r.competitionId !== competitionId);
 
-    const firstPlaceFullName = this.getParticipantFullName(first.participantName, firstPlaceRegId);
-    const secondPlaceFullName = second ? this.getParticipantFullName(second.participantName, second.id) : undefined;
-    const thirdPlaceFullName = third ? this.getParticipantFullName(third.participantName, third.id) : undefined;
+    const mapWinnerDetails = (idList: string[]): WinnerDetail[] => {
+      return idList.map(id => {
+        const reg = regs.find(r => r.id === id);
+        if (!reg) return null;
+        const fullName = this.getParticipantFullName(reg.participantName, id);
+        return {
+          regId: id,
+          participantName: fullName,
+          groupId: reg.groupId,
+          groupName: reg.groupName,
+          codeLetter: reg.codeLetter || undefined,
+          photoUrl: this.getParticipantPhotoUrl(fullName, id),
+          mark: reg.mark,
+          score: reg.mark ? Number(reg.mark) : undefined
+        };
+      }).filter(Boolean) as WinnerDetail[];
+    };
+
+    const firstWinners = mapWinnerDetails(firstIds);
+    const secondWinners = mapWinnerDetails(secondIds);
+    const thirdWinners = mapWinnerDetails(thirdIds);
+
+    const primaryFirst = firstWinners[0];
+    const primarySecond = secondWinners[0];
+    const primaryThird = thirdWinners[0];
 
     const newResult: Result = {
       id: `res-${Date.now()}`,
       competitionId,
       competitionName: comp.name,
-      firstPlaceRegId,
-      firstPlaceParticipantName: firstPlaceFullName,
-      firstPlaceGroupId: first.groupId,
-      firstPlaceGroupName: first.groupName,
-      firstPlaceCodeLetter: first.codeLetter || undefined,
+      firstPlaceRegId: primaryFirst ? primaryFirst.regId : '',
+      firstPlaceParticipantName: primaryFirst ? primaryFirst.participantName : '',
+      firstPlaceGroupId: primaryFirst ? primaryFirst.groupId : '',
+      firstPlaceGroupName: primaryFirst ? primaryFirst.groupName : '',
+      firstPlaceCodeLetter: primaryFirst?.codeLetter,
 
-      secondPlaceRegId: second?.id,
-      secondPlaceParticipantName: secondPlaceFullName,
-      secondPlaceGroupId: second?.groupId,
-      secondPlaceGroupName: second?.groupName,
-      secondPlaceCodeLetter: second?.codeLetter || undefined,
+      secondPlaceRegId: primarySecond?.regId,
+      secondPlaceParticipantName: primarySecond?.participantName,
+      secondPlaceGroupId: primarySecond?.groupId,
+      secondPlaceGroupName: primarySecond?.groupName,
+      secondPlaceCodeLetter: primarySecond?.codeLetter,
 
-      thirdPlaceRegId: third?.id,
-      thirdPlaceParticipantName: thirdPlaceFullName,
-      thirdPlaceGroupId: third?.groupId,
-      thirdPlaceGroupName: third?.groupName,
-      thirdPlaceCodeLetter: third?.codeLetter || undefined,
+      thirdPlaceRegId: primaryThird?.regId,
+      thirdPlaceParticipantName: primaryThird?.participantName,
+      thirdPlaceGroupId: primaryThird?.groupId,
+      thirdPlaceGroupName: primaryThird?.groupName,
+      thirdPlaceCodeLetter: primaryThird?.codeLetter,
+
+      firstPlaceWinners: firstWinners,
+      secondPlaceWinners: secondWinners,
+      thirdPlaceWinners: thirdWinners,
 
       publishedAt: new Date().toISOString(),
 
@@ -3086,7 +3158,7 @@ class FestStore {
     this.notify();
   }
 
-  // Recalculate live total points and medal tallies for all groups
+  // Recalculate live total points and medal tallies for all groups (Supporting multi-winners for 1st, 2nd, 3rd)
   public recalculateGroupPoints(save = true): LeaderboardEntry[] {
     const data = this.getData();
     const usePerformancePointsGlobally = data.calculateWithPerformancePoints !== false;
@@ -3112,6 +3184,8 @@ class FestStore {
       const p2 = comp?.points2nd || 7;
       const p3 = comp?.points3rd || 5;
 
+      const { first, second, third } = this.getResultWinners(res);
+
       if (usePerformancePointsGlobally && res.useDetailedPoints && res.participantPointsMap) {
         // Detailed Team Point Calculation mode (including performance grade points)
         Object.keys(res.participantPointsMap).forEach(regId => {
@@ -3123,30 +3197,42 @@ class FestStore {
           }
         });
 
-        // Still accumulate gold/silver/bronze medals
-        if (res.firstPlaceGroupId && groupScores[res.firstPlaceGroupId]) {
-          groupScores[res.firstPlaceGroupId].golds += 1;
-        }
-        if (res.secondPlaceGroupId && groupScores[res.secondPlaceGroupId]) {
-          groupScores[res.secondPlaceGroupId].silvers += 1;
-        }
-        if (res.thirdPlaceGroupId && groupScores[res.thirdPlaceGroupId]) {
-          groupScores[res.thirdPlaceGroupId].bronzes += 1;
-        }
+        // Still accumulate gold/silver/bronze medals for all winners
+        first.forEach(w => {
+          if (w.groupId && groupScores[w.groupId]) {
+            groupScores[w.groupId].golds += 1;
+          }
+        });
+        second.forEach(w => {
+          if (w.groupId && groupScores[w.groupId]) {
+            groupScores[w.groupId].silvers += 1;
+          }
+        });
+        third.forEach(w => {
+          if (w.groupId && groupScores[w.groupId]) {
+            groupScores[w.groupId].bronzes += 1;
+          }
+        });
       } else {
-        // Competition Winner Points Only mode (1st, 2nd, 3rd points only, without performance points)
-        if (res.firstPlaceGroupId && groupScores[res.firstPlaceGroupId]) {
-          groupScores[res.firstPlaceGroupId].totalPoints += p1;
-          groupScores[res.firstPlaceGroupId].golds += 1;
-        }
-        if (res.secondPlaceGroupId && groupScores[res.secondPlaceGroupId]) {
-          groupScores[res.secondPlaceGroupId].totalPoints += p2;
-          groupScores[res.secondPlaceGroupId].silvers += 1;
-        }
-        if (res.thirdPlaceGroupId && groupScores[res.thirdPlaceGroupId]) {
-          groupScores[res.thirdPlaceGroupId].totalPoints += p3;
-          groupScores[res.thirdPlaceGroupId].bronzes += 1;
-        }
+        // Competition Winner Points Only mode (1st, 2nd, 3rd points for all ranked winners)
+        first.forEach(w => {
+          if (w.groupId && groupScores[w.groupId]) {
+            groupScores[w.groupId].totalPoints += p1;
+            groupScores[w.groupId].golds += 1;
+          }
+        });
+        second.forEach(w => {
+          if (w.groupId && groupScores[w.groupId]) {
+            groupScores[w.groupId].totalPoints += p2;
+            groupScores[w.groupId].silvers += 1;
+          }
+        });
+        third.forEach(w => {
+          if (w.groupId && groupScores[w.groupId]) {
+            groupScores[w.groupId].totalPoints += p3;
+            groupScores[w.groupId].bronzes += 1;
+          }
+        });
       }
     });
 

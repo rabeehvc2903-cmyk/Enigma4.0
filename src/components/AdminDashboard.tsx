@@ -776,9 +776,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   // --- RESULT ENTRY ENGINE STATE ---
   const [selectedCompId, setSelectedCompId] = useState<string>('');
-  const [firstPlaceRegId, setFirstPlaceRegId] = useState<string>('');
-  const [secondPlaceRegId, setSecondPlaceRegId] = useState<string>('');
-  const [thirdPlaceRegId, setThirdPlaceRegId] = useState<string>('');
+  const [firstPlaceRegIds, setFirstPlaceRegIds] = useState<string[]>([]);
+  const [secondPlaceRegIds, setSecondPlaceRegIds] = useState<string[]>([]);
+  const [thirdPlaceRegIds, setThirdPlaceRegIds] = useState<string[]>([]);
   const [resultSuccessMsg, setResultSuccessMsg] = useState<string>('');
   const [resultErrorMsg, setResultErrorMsg] = useState<string>('');
   const [resultsCategoryFilter, setResultsCategoryFilter] = useState<string>('All');
@@ -796,28 +796,45 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       const pubResult = results.find(r => r.competitionId === selectedCompId);
       if (pubResult) {
         setUseDetailedPoints(pubResult.useDetailedPoints ?? true);
-        setFirstPlaceRegId(pubResult.firstPlaceRegId || '');
-        setSecondPlaceRegId(pubResult.secondPlaceRegId || '');
-        setThirdPlaceRegId(pubResult.thirdPlaceRegId || '');
+        const winners = festStore.getResultWinners(pubResult);
+        setFirstPlaceRegIds(winners.first.map(w => w.regId).filter(Boolean));
+        setSecondPlaceRegIds(winners.second.map(w => w.regId).filter(Boolean));
+        setThirdPlaceRegIds(winners.third.map(w => w.regId).filter(Boolean));
       } else {
         setUseDetailedPoints(true);
         const compRegs = registrations.filter(r => r.competitionId === selectedCompId);
         const reportedRegs = compRegs.filter(r => r.isReported === true);
-        const sortedScored = [...reportedRegs]
-          .map(r => ({ r, score: Number(r.mark) || 0, rank: r.judgeRank || 999 }))
-          .sort((a, b) => {
-            if (b.score !== a.score) return b.score - a.score;
-            return a.rank - b.rank;
-          });
-        
-        setFirstPlaceRegId(sortedScored[0]?.r.id || '');
-        setSecondPlaceRegId(sortedScored[1]?.r.id || '');
-        setThirdPlaceRegId(sortedScored[2]?.r.id || '');
+
+        // Check if judge explicitly selected ranks (multiple 1st, 2nd, 3rd allowed)
+        const rank1Regs = reportedRegs.filter(r => r.judgeRank === 1);
+        const rank2Regs = reportedRegs.filter(r => r.judgeRank === 2);
+        const rank3Regs = reportedRegs.filter(r => r.judgeRank === 3);
+
+        if (rank1Regs.length > 0 || rank2Regs.length > 0 || rank3Regs.length > 0) {
+          setFirstPlaceRegIds(rank1Regs.map(r => r.id));
+          setSecondPlaceRegIds(rank2Regs.map(r => r.id));
+          setThirdPlaceRegIds(rank3Regs.map(r => r.id));
+        } else {
+          // If no judge ranks, derive from marks (allowing ties to share place)
+          const scoredRegs = [...reportedRegs]
+            .filter(r => r.mark !== undefined && r.mark !== null && String(r.mark).trim() !== '')
+            .map(r => ({ r, score: Number(r.mark) || 0 }))
+            .sort((a, b) => b.score - a.score);
+
+          const uniqueScores = Array.from(new Set(scoredRegs.map(s => s.score))).sort((a, b) => b - a);
+          const score1 = uniqueScores[0];
+          const score2 = uniqueScores[1];
+          const score3 = uniqueScores[2];
+
+          setFirstPlaceRegIds(score1 !== undefined ? scoredRegs.filter(s => s.score === score1).map(s => s.r.id) : []);
+          setSecondPlaceRegIds(score2 !== undefined ? scoredRegs.filter(s => s.score === score2).map(s => s.r.id) : []);
+          setThirdPlaceRegIds(score3 !== undefined ? scoredRegs.filter(s => s.score === score3).map(s => s.r.id) : []);
+        }
       }
     } else {
-      setFirstPlaceRegId('');
-      setSecondPlaceRegId('');
-      setThirdPlaceRegId('');
+      setFirstPlaceRegIds([]);
+      setSecondPlaceRegIds([]);
+      setThirdPlaceRegIds([]);
     }
   }, [selectedCompId, results, registrations]);
 
@@ -1382,8 +1399,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setResultSuccessMsg('');
     setResultErrorMsg('');
 
-    if (!selectedCompId || !firstPlaceRegId) {
-      setResultErrorMsg('Please select a competition and pick a 1st Place winner!');
+    if (!selectedCompId || firstPlaceRegIds.length === 0) {
+      setResultErrorMsg('Please select a competition and pick at least one 1st Place winner!');
       return;
     }
 
@@ -1417,11 +1434,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           );
           
           let competitionPoints = 0;
-          if (reg.id === firstPlaceRegId) {
+          if (firstPlaceRegIds.includes(reg.id)) {
             competitionPoints = selectedCompetition?.points1st || 10;
-          } else if (reg.id === secondPlaceRegId) {
+          } else if (secondPlaceRegIds.includes(reg.id)) {
             competitionPoints = selectedCompetition?.points2nd || 7;
-          } else if (reg.id === thirdPlaceRegId) {
+          } else if (thirdPlaceRegIds.includes(reg.id)) {
             competitionPoints = selectedCompetition?.points3rd || 5;
           }
 
@@ -1437,18 +1454,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       festStore.publishResult(
         selectedCompId,
-        firstPlaceRegId,
-        secondPlaceRegId || undefined,
-        thirdPlaceRegId || undefined,
+        firstPlaceRegIds,
+        secondPlaceRegIds,
+        thirdPlaceRegIds,
         useDetailedPoints,
         participantPointsMap
       );
 
       setResultSuccessMsg(`Result for "${selectedCompetition?.name}" published successfully! Live group points updated.`);
       setSelectedCompId('');
-      setFirstPlaceRegId('');
-      setSecondPlaceRegId('');
-      setThirdPlaceRegId('');
+      setFirstPlaceRegIds([]);
+      setSecondPlaceRegIds([]);
+      setThirdPlaceRegIds([]);
       onRefresh();
     } catch (err: any) {
       setResultErrorMsg(err.message || 'Error publishing result');
@@ -1470,27 +1487,44 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         setResultErrorMsg(err.message || 'Error unpublishing result');
       }
     } else {
-      // Publish automatically from judge marks
+      // Publish automatically from judge marks / judge rank selections
       const compRegs = registrations.filter(r => r.competitionId === comp.id);
       const reportedRegs = compRegs.filter(r => r.isReported === true);
-      const scoredRegs = reportedRegs
-        .filter(r => r.mark !== undefined && r.mark !== null && String(r.mark).trim() !== '')
-        .map(r => ({ ...r, numMark: Number(r.mark) || 0, rank: r.judgeRank || 999 }))
-        .sort((a, b) => {
-          if (b.numMark !== a.numMark) return b.numMark - a.numMark;
-          return a.rank - b.rank;
-        });
+      
+      const rank1Regs = reportedRegs.filter(r => r.judgeRank === 1);
+      const rank2Regs = reportedRegs.filter(r => r.judgeRank === 2);
+      const rank3Regs = reportedRegs.filter(r => r.judgeRank === 3);
 
-      if (scoredRegs.length === 0) {
-        setResultErrorMsg(`Cannot publish "${comp.name}": No judge scores recorded yet.`);
-        return;
+      let p1List: string[] = [];
+      let p2List: string[] = [];
+      let p3List: string[] = [];
+
+      if (rank1Regs.length > 0 || rank2Regs.length > 0 || rank3Regs.length > 0) {
+        p1List = rank1Regs.map(r => r.id);
+        p2List = rank2Regs.map(r => r.id);
+        p3List = rank3Regs.map(r => r.id);
+      } else {
+        const scoredRegs = reportedRegs
+          .filter(r => r.mark !== undefined && r.mark !== null && String(r.mark).trim() !== '')
+          .map(r => ({ ...r, numMark: Number(r.mark) || 0 }))
+          .sort((a, b) => b.numMark - a.numMark);
+
+        if (scoredRegs.length === 0) {
+          setResultErrorMsg(`Cannot publish "${comp.name}": No judge scores recorded yet.`);
+          return;
+        }
+
+        const uniqueScores: number[] = Array.from(new Set<number>(scoredRegs.map(s => s.numMark))).sort((a: number, b: number) => b - a);
+        const score1 = uniqueScores[0];
+        const score2 = uniqueScores[1];
+        const score3 = uniqueScores[2];
+
+        p1List = score1 !== undefined ? scoredRegs.filter(s => s.numMark === score1).map(s => s.id) : [];
+        p2List = score2 !== undefined ? scoredRegs.filter(s => s.numMark === score2).map(s => s.id) : [];
+        p3List = score3 !== undefined ? scoredRegs.filter(s => s.numMark === score3).map(s => s.id) : [];
       }
 
-      const p1 = scoredRegs[0]?.id;
-      const p2 = scoredRegs[1]?.id;
-      const p3 = scoredRegs[2]?.id;
-
-      if (!p1) {
+      if (p1List.length === 0) {
         setResultErrorMsg('Cannot publish result: 1st place winner could not be determined.');
         return;
       }
@@ -1515,11 +1549,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             );
 
             let competitionPoints = 0;
-            if (reg.id === p1) {
+            if (p1List.includes(reg.id)) {
               competitionPoints = comp.points1st || 10;
-            } else if (reg.id === p2) {
+            } else if (p2List.includes(reg.id)) {
               competitionPoints = comp.points2nd || 7;
-            } else if (reg.id === p3) {
+            } else if (p3List.includes(reg.id)) {
               competitionPoints = comp.points3rd || 5;
             }
 
@@ -1535,9 +1569,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
         festStore.publishResult(
           comp.id,
-          p1,
-          p2 || undefined,
-          p3 || undefined,
+          p1List,
+          p2List,
+          p3List,
           useDetailedPoints,
           participantPointsMap
         );
@@ -1906,10 +1940,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     (comp.venue && String(comp.venue).toLowerCase().includes(q)) ||
                     (comp.description && comp.description.toLowerCase().includes(q));
                   
-                  // Filter: Scored and saved by judge competitions only (at least one reported participant has marks saved by judge)
+                  // Filter: Scored and saved by judge competitions only (marks saved, judge ranks assigned, or marked completed)
                   const compRegs = registrations.filter(r => r.competitionId === comp.id);
                   const reportedRegs = compRegs.filter(r => r.isReported === true);
-                  const isScoredAndSavedByJudge = reportedRegs.length > 0 && reportedRegs.some(r => r.mark !== undefined && r.mark !== null && String(r.mark).trim() !== '');
+                  const isScoredAndSavedByJudge = reportedRegs.length > 0 && (
+                    reportedRegs.some(r => r.mark !== undefined && r.mark !== null && String(r.mark).trim() !== '') ||
+                    reportedRegs.some(r => r.judgeRank !== undefined && r.judgeRank !== null) ||
+                    comp.status === 'completed' ||
+                    comp.isPublishedResult
+                  );
                   
                   return matchesCat && matchesQuery && isScoredAndSavedByJudge;
                 });
@@ -1921,16 +1960,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       value={selectedCompId}
                       onChange={(e) => {
                         setSelectedCompId(e.target.value);
-                        setFirstPlaceRegId('');
-                        setSecondPlaceRegId('');
-                        setThirdPlaceRegId('');
+                        setFirstPlaceRegIds([]);
+                        setSecondPlaceRegIds([]);
+                        setThirdPlaceRegIds([]);
                       }}
                       className="w-full bg-[#181b30] border border-[#292d4a] focus:border-purple-500 rounded-2xl p-3.5 text-sm text-white font-bold focus:outline-none"
                     >
                       <option value="">
                         {availableResultsComps.length > 0
-                          ? `-- Choose Competition (${availableResultsComps.length} with Judge Scores) --`
-                          : '-- No Competitions with Saved Judge Scores Available --'}
+                          ? `-- Choose Competition (${availableResultsComps.length} Evaluated by Judge) --`
+                          : '-- No Competitions with Saved Judge Evaluation Available --'}
                       </option>
                       {availableResultsComps.map((comp) => (
                         <option key={comp.id} value={comp.id}>
@@ -1949,9 +1988,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               const reportedCompRegistrations = activeCompRegistrations.filter(r => r.isReported === true);
               const unreportedCount = activeCompRegistrations.length - reportedCompRegistrations.length;
 
-              const firstWinner = reportedCompRegistrations.find(r => r.id === firstPlaceRegId);
-              const secondWinner = reportedCompRegistrations.find(r => r.id === secondPlaceRegId);
-              const thirdWinner = reportedCompRegistrations.find(r => r.id === thirdPlaceRegId);
+              const firstWinners = reportedCompRegistrations.filter(r => firstPlaceRegIds.includes(r.id));
+              const secondWinners = reportedCompRegistrations.filter(r => secondPlaceRegIds.includes(r.id));
+              const thirdWinners = reportedCompRegistrations.filter(r => thirdPlaceRegIds.includes(r.id));
 
               return (
                 <div className="p-5 bg-[#181b30] border border-amber-500/40 rounded-3xl space-y-4">
@@ -1996,7 +2035,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
                       <div className="space-y-2">
                         <label className="block text-[10px] font-extrabold uppercase tracking-wider text-slate-400">
-                          🏆 Calculated Winners (Determined automatically by highest judge marks)
+                          🏆 Calculated Winners (Supports multiple 1st, 2nd, 3rd places for ties or shared ranks)
                         </label>
 
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -2009,35 +2048,35 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             <div>
                               <div className="flex items-center justify-between gap-2">
                                 <span className="inline-flex items-center gap-1 text-[9px] bg-amber-500/10 text-amber-400 font-extrabold px-2.5 py-1 rounded-full uppercase tracking-wider border border-amber-500/20">
-                                  🥇 1st Place (+{selectedCompetition?.points1st || 10} Pts)
+                                  🥇 1st Place (+{selectedCompetition?.points1st || 10} Pts){firstWinners.length > 1 ? ` (${firstWinners.length} Winners)` : ''}
                                 </span>
-                                {firstWinner?.judgeRank === 1 && (
-                                  <span className="text-[9px] font-bold text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 rounded-md">
-                                    ⚖️ Judge Pick: 1st
-                                  </span>
-                                )}
                               </div>
-                              <div className="mt-3">
-                                {firstWinner ? (
-                                  <>
-                                    <div className="text-white font-black text-sm tracking-wide truncate">
-                                      {firstWinner.codeLetter ? `[Code ${firstWinner.codeLetter}] ` : ''}{festStore.getParticipantFullName(firstWinner.participantName, firstWinner.id)}
+                              <div className="mt-3 space-y-2">
+                                {firstWinners.length > 0 ? (
+                                  firstWinners.map(firstWinner => (
+                                    <div key={firstWinner.id} className="pb-1.5 border-b border-[#292d4a]/30 last:border-b-0 last:pb-0">
+                                      <div className="text-white font-black text-sm tracking-wide truncate flex items-center gap-1.5">
+                                        <span>{firstWinner.codeLetter ? `[Code ${firstWinner.codeLetter}] ` : ''}{festStore.getParticipantFullName(firstWinner.participantName, firstWinner.id)}</span>
+                                        {firstWinner.judgeRank === 1 && (
+                                          <span className="text-[8px] font-bold text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 px-1.5 py-0.5 rounded">
+                                            Judge Pick
+                                          </span>
+                                        )}
+                                      </div>
+                                      <div className="text-[11px] text-slate-400 truncate mt-0.5 font-bold">
+                                        {firstWinner.groupName}
+                                      </div>
+                                      {calculateWithPerformancePoints && firstWinner.mark && (
+                                        <div className="text-[10px] text-amber-400 font-mono mt-0.5">
+                                          Score: {firstWinner.mark} / 100
+                                        </div>
+                                      )}
                                     </div>
-                                    <div className="text-[11px] text-slate-400 truncate mt-0.5 font-bold">
-                                      {firstWinner.groupName}
-                                    </div>
-                                  </>
+                                  ))
                                 ) : (
                                   <div className="text-slate-500 text-xs italic py-1">No participant scored</div>
                                 )}
                               </div>
-                            </div>
-
-                            <div className="pt-2 border-t border-[#292d4a]/40 flex items-center justify-between">
-                              <span className="text-[10px] text-slate-400 font-bold uppercase">Judge Score</span>
-                              <span className="text-xs font-mono font-extrabold text-amber-400">
-                                {firstWinner?.mark ? `${firstWinner.mark} / 100` : 'N/A'}
-                              </span>
                             </div>
                           </div>
 
@@ -2049,35 +2088,35 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             <div>
                               <div className="flex items-center justify-between gap-2">
                                 <span className="inline-flex items-center gap-1 text-[9px] bg-slate-400/10 text-slate-300 font-extrabold px-2.5 py-1 rounded-full uppercase tracking-wider border border-slate-400/20">
-                                  🥈 2nd Place (+{selectedCompetition?.points2nd || 7} Pts)
+                                  🥈 2nd Place (+{selectedCompetition?.points2nd || 7} Pts){secondWinners.length > 1 ? ` (${secondWinners.length} Winners)` : ''}
                                 </span>
-                                {secondWinner?.judgeRank === 2 && (
-                                  <span className="text-[9px] font-bold text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 rounded-md">
-                                    ⚖️ Judge Pick: 2nd
-                                  </span>
-                                )}
                               </div>
-                              <div className="mt-3">
-                                {secondWinner ? (
-                                  <>
-                                    <div className="text-white font-black text-sm tracking-wide truncate">
-                                      {secondWinner.codeLetter ? `[Code ${secondWinner.codeLetter}] ` : ''}{festStore.getParticipantFullName(secondWinner.participantName, secondWinner.id)}
+                              <div className="mt-3 space-y-2">
+                                {secondWinners.length > 0 ? (
+                                  secondWinners.map(secondWinner => (
+                                    <div key={secondWinner.id} className="pb-1.5 border-b border-[#292d4a]/30 last:border-b-0 last:pb-0">
+                                      <div className="text-white font-black text-sm tracking-wide truncate flex items-center gap-1.5">
+                                        <span>{secondWinner.codeLetter ? `[Code ${secondWinner.codeLetter}] ` : ''}{festStore.getParticipantFullName(secondWinner.participantName, secondWinner.id)}</span>
+                                        {secondWinner.judgeRank === 2 && (
+                                          <span className="text-[8px] font-bold text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 px-1.5 py-0.5 rounded">
+                                            Judge Pick
+                                          </span>
+                                        )}
+                                      </div>
+                                      <div className="text-[11px] text-slate-400 truncate mt-0.5 font-bold">
+                                        {secondWinner.groupName}
+                                      </div>
+                                      {calculateWithPerformancePoints && secondWinner.mark && (
+                                        <div className="text-[10px] text-slate-300 font-mono mt-0.5">
+                                          Score: {secondWinner.mark} / 100
+                                        </div>
+                                      )}
                                     </div>
-                                    <div className="text-[11px] text-slate-400 truncate mt-0.5 font-bold">
-                                      {secondWinner.groupName}
-                                    </div>
-                                  </>
+                                  ))
                                 ) : (
                                   <div className="text-slate-500 text-xs italic py-1">No participant scored</div>
                                 )}
                               </div>
-                            </div>
-
-                            <div className="pt-2 border-t border-[#292d4a]/40 flex items-center justify-between">
-                              <span className="text-[10px] text-slate-400 font-bold uppercase">Judge Score</span>
-                              <span className="text-xs font-mono font-extrabold text-slate-300">
-                                {secondWinner?.mark ? `${secondWinner.mark} / 100` : 'N/A'}
-                              </span>
                             </div>
                           </div>
 
@@ -2089,35 +2128,35 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             <div>
                               <div className="flex items-center justify-between gap-2">
                                 <span className="inline-flex items-center gap-1 text-[9px] bg-amber-700/10 text-amber-600 font-extrabold px-2.5 py-1 rounded-full uppercase tracking-wider border border-amber-700/25">
-                                  🥉 3rd Place (+{selectedCompetition?.points3rd || 5} Pts)
+                                  🥉 3rd Place (+{selectedCompetition?.points3rd || 5} Pts){thirdWinners.length > 1 ? ` (${thirdWinners.length} Winners)` : ''}
                                 </span>
-                                {thirdWinner?.judgeRank === 3 && (
-                                  <span className="text-[9px] font-bold text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 rounded-md">
-                                    ⚖️ Judge Pick: 3rd
-                                  </span>
-                                )}
                               </div>
-                              <div className="mt-3">
-                                {thirdWinner ? (
-                                  <>
-                                    <div className="text-white font-black text-sm tracking-wide truncate">
-                                      {thirdWinner.codeLetter ? `[Code ${thirdWinner.codeLetter}] ` : ''}{festStore.getParticipantFullName(thirdWinner.participantName, thirdWinner.id)}
+                              <div className="mt-3 space-y-2">
+                                {thirdWinners.length > 0 ? (
+                                  thirdWinners.map(thirdWinner => (
+                                    <div key={thirdWinner.id} className="pb-1.5 border-b border-[#292d4a]/30 last:border-b-0 last:pb-0">
+                                      <div className="text-white font-black text-sm tracking-wide truncate flex items-center gap-1.5">
+                                        <span>{thirdWinner.codeLetter ? `[Code ${thirdWinner.codeLetter}] ` : ''}{festStore.getParticipantFullName(thirdWinner.participantName, thirdWinner.id)}</span>
+                                        {thirdWinner.judgeRank === 3 && (
+                                          <span className="text-[8px] font-bold text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 px-1.5 py-0.5 rounded">
+                                            Judge Pick
+                                          </span>
+                                        )}
+                                      </div>
+                                      <div className="text-[11px] text-slate-400 truncate mt-0.5 font-bold">
+                                        {thirdWinner.groupName}
+                                      </div>
+                                      {calculateWithPerformancePoints && thirdWinner.mark && (
+                                        <div className="text-[10px] text-amber-600 font-mono mt-0.5">
+                                          Score: {thirdWinner.mark} / 100
+                                        </div>
+                                      )}
                                     </div>
-                                    <div className="text-[11px] text-slate-400 truncate mt-0.5 font-bold">
-                                      {thirdWinner.groupName}
-                                    </div>
-                                  </>
+                                  ))
                                 ) : (
                                   <div className="text-slate-500 text-xs italic py-1">No participant scored</div>
                                 )}
                               </div>
-                            </div>
-
-                            <div className="pt-2 border-t border-[#292d4a]/40 flex items-center justify-between">
-                              <span className="text-[10px] text-slate-400 font-bold uppercase">Judge Score</span>
-                              <span className="text-xs font-mono font-extrabold text-amber-600">
-                                {thirdWinner?.mark ? `${thirdWinner.mark} / 100` : 'N/A'}
-                              </span>
                             </div>
                           </div>
 
@@ -2141,12 +2180,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                               <thead>
                                 <tr className="bg-[#181b30] border-b border-[#292d4a] text-[10px] font-bold text-slate-400 uppercase">
                                   <th className="py-2.5 px-3">Rank / Participant</th>
-                                  <th className="py-2.5 px-3 text-center">Judge Score</th>
-                                  <th className="py-2.5 px-3 text-center">Grade</th>
-                                  <th className="py-2.5 px-3 text-center">Comp Pts</th>
+                                  {calculateWithPerformancePoints && (
+                                    <>
+                                      <th className="py-2.5 px-3 text-center">Judge Score</th>
+                                      <th className="py-2.5 px-3 text-center">Grade</th>
+                                    </>
+                                  )}
                                   <th className="py-2.5 px-3 text-center">
-                                    {calculateWithPerformancePoints ? 'Perf Pts' : 'Perf Pts (Disabled)'}
+                                    {calculateWithPerformancePoints ? 'Comp Pts' : 'Comp Pts (1st, 2nd, 3rd)'}
                                   </th>
+                                  {calculateWithPerformancePoints && (
+                                    <th className="py-2.5 px-3 text-center">Perf Pts</th>
+                                  )}
                                   <th className="py-2.5 px-3 text-right">Team Contribution</th>
                                 </tr>
                               </thead>
@@ -2165,15 +2210,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                     let competitionPoints = 0;
                                     let rankBadge = '';
 
-                                    if (reg.id === firstPlaceRegId) {
+                                    if (firstPlaceRegIds.includes(reg.id)) {
                                       competitionPoints = selectedCompetition?.points1st || 10;
-                                      rankBadge = '🥇';
-                                    } else if (reg.id === secondPlaceRegId) {
+                                      rankBadge = '🥇 1st';
+                                    } else if (secondPlaceRegIds.includes(reg.id)) {
                                       competitionPoints = selectedCompetition?.points2nd || 7;
-                                      rankBadge = '🥈';
-                                    } else if (reg.id === thirdPlaceRegId) {
+                                      rankBadge = '🥈 2nd';
+                                    } else if (thirdPlaceRegIds.includes(reg.id)) {
                                       competitionPoints = selectedCompetition?.points3rd || 5;
-                                      rankBadge = '🥉';
+                                      rankBadge = '🥉 3rd';
                                     } else {
                                       competitionPoints = 0;
                                     }
@@ -2189,13 +2234,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                       rankBadge
                                     };
                                   })
-                                  .sort((a, b) => b.score - a.score)
+                                  .sort((a, b) => {
+                                    if (b.totalPoints !== a.totalPoints) return b.totalPoints - a.totalPoints;
+                                    if (calculateWithPerformancePoints && b.score !== a.score) return b.score - a.score;
+                                    return (a.reg.judgeRank || 99) - (b.reg.judgeRank || 99);
+                                  })
                                   .map((item, idx) => {
                                     return (
                                       <tr key={item.reg.id} className="hover:bg-[#1f223d]/40 transition-colors">
                                         <td className="py-2.5 px-3">
                                           <div className="flex items-center gap-1.5">
-                                            <span className="w-6 font-mono font-bold text-slate-400">
+                                            <span className="font-mono font-bold text-slate-300 min-w-[50px]">
                                               {item.rankBadge || `${idx + 1}th`}
                                             </span>
                                             <div>
@@ -2208,26 +2257,32 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                             </div>
                                           </div>
                                         </td>
-                                        <td className="py-2.5 px-3 text-center font-mono font-bold text-white">
-                                          {item.score} / 100
-                                        </td>
-                                        <td className="py-2.5 px-3 text-center">
-                                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                                            item.grade === 'A+' ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' :
-                                            item.grade === 'A' ? 'bg-purple-500/15 text-purple-400 border border-purple-500/30' :
-                                            item.grade === 'B' ? 'bg-blue-500/15 text-blue-400 border border-blue-500/30' :
-                                            item.grade === 'C' ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30' :
-                                            'bg-slate-500/15 text-slate-400 border border-slate-500/30'
-                                          }`}>
-                                            {item.grade}
-                                          </span>
-                                        </td>
+                                        {calculateWithPerformancePoints && (
+                                          <>
+                                            <td className="py-2.5 px-3 text-center font-mono font-bold text-white">
+                                              {item.score} / 100
+                                            </td>
+                                            <td className="py-2.5 px-3 text-center">
+                                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                                item.grade === 'A+' ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' :
+                                                item.grade === 'A' ? 'bg-purple-500/15 text-purple-400 border border-purple-500/30' :
+                                                item.grade === 'B' ? 'bg-blue-500/15 text-blue-400 border border-blue-500/30' :
+                                                item.grade === 'C' ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30' :
+                                                'bg-slate-500/15 text-slate-400 border border-slate-500/30'
+                                              }`}>
+                                                {item.grade}
+                                              </span>
+                                            </td>
+                                          </>
+                                        )}
                                         <td className="py-2.5 px-3 text-center font-mono font-bold text-amber-400">
                                           +{item.competitionPoints}
                                         </td>
-                                        <td className="py-2.5 px-3 text-center font-mono font-bold text-purple-400">
-                                          {calculateWithPerformancePoints ? `+${item.rawPerformancePoints}` : <span className="text-slate-500 text-[10px]">0 (Disabled)</span>}
-                                        </td>
+                                        {calculateWithPerformancePoints && (
+                                          <td className="py-2.5 px-3 text-center font-mono font-bold text-purple-400">
+                                            +{item.rawPerformancePoints}
+                                          </td>
+                                        )}
                                         <td className="py-2.5 px-3 text-right font-mono font-extrabold text-emerald-400">
                                           {item.totalPoints} pts
                                         </td>
@@ -2262,7 +2317,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               const isScoredByJudge = (comp: Competition) => {
                 const compRegs = registrations.filter(r => r.competitionId === comp.id);
                 const reportedRegs = compRegs.filter(r => r.isReported === true);
-                return reportedRegs.length > 0 && reportedRegs.some(r => r.mark !== undefined && r.mark !== null && String(r.mark).trim() !== '');
+                return reportedRegs.length > 0 && (
+                  reportedRegs.some(r => r.mark !== undefined && r.mark !== null && String(r.mark).trim() !== '') ||
+                  reportedRegs.some(r => r.judgeRank !== undefined && r.judgeRank !== null) ||
+                  comp.status === 'completed' ||
+                  comp.isPublishedResult
+                );
               };
 
               const judgedComps = competitions.filter(isScoredByJudge);
@@ -2439,31 +2499,46 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             )}
                           </td>
                           <td className="py-3 px-4 text-xs">
-                            {publishedResult ? (
-                              <div className="space-y-0.5">
-                                {publishedResult.firstPlaceParticipantName && (
-                                  <div className="text-amber-300 font-semibold flex items-center gap-1">
-                                    <span>🥇</span>
-                                    <span>{festStore.getParticipantFullName(publishedResult.firstPlaceParticipantName, publishedResult.firstPlaceRegId)}</span>
-                                    <span className="text-slate-400 text-[10px]">({publishedResult.firstPlaceGroupName})</span>
-                                  </div>
-                                )}
-                                {publishedResult.secondPlaceParticipantName && (
-                                  <div className="text-slate-300 flex items-center gap-1">
-                                    <span>🥈</span>
-                                    <span>{festStore.getParticipantFullName(publishedResult.secondPlaceParticipantName, publishedResult.secondPlaceRegId)}</span>
-                                    <span className="text-slate-400 text-[10px]">({publishedResult.secondPlaceGroupName})</span>
-                                  </div>
-                                )}
-                                {publishedResult.thirdPlaceParticipantName && (
-                                  <div className="text-amber-600 flex items-center gap-1">
-                                    <span>🥉</span>
-                                    <span>{festStore.getParticipantFullName(publishedResult.thirdPlaceParticipantName, publishedResult.thirdPlaceRegId)}</span>
-                                    <span className="text-slate-400 text-[10px]">({publishedResult.thirdPlaceGroupName})</span>
-                                  </div>
-                                )}
-                              </div>
-                            ) : (
+                            {publishedResult ? (() => {
+                              const winners = festStore.getResultWinners(publishedResult);
+                              return (
+                                <div className="space-y-1">
+                                  {winners.first.length > 0 && (
+                                    <div className="text-amber-300 font-semibold space-y-0.5">
+                                      {winners.first.map(w => (
+                                        <div key={w.regId} className="flex items-center gap-1">
+                                          <span>🥇</span>
+                                          <span>{festStore.getParticipantFullName(w.participantName, w.regId)}</span>
+                                          <span className="text-slate-400 text-[10px]">({w.groupName})</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                  {winners.second.length > 0 && (
+                                    <div className="text-slate-300 space-y-0.5">
+                                      {winners.second.map(w => (
+                                        <div key={w.regId} className="flex items-center gap-1">
+                                          <span>🥈</span>
+                                          <span>{festStore.getParticipantFullName(w.participantName, w.regId)}</span>
+                                          <span className="text-slate-400 text-[10px]">({w.groupName})</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                  {winners.third.length > 0 && (
+                                    <div className="text-amber-600 space-y-0.5">
+                                      {winners.third.map(w => (
+                                        <div key={w.regId} className="flex items-center gap-1">
+                                          <span>🥉</span>
+                                          <span>{festStore.getParticipantFullName(w.participantName, w.regId)}</span>
+                                          <span className="text-slate-400 text-[10px]">({w.groupName})</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })() : (
                               <span className="text-slate-500 italic text-[11px]">Not published yet</span>
                             )}
                           </td>

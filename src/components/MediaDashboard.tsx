@@ -237,14 +237,16 @@ export const MediaDashboard: React.FC<MediaDashboardProps> = ({
 
   // 5. COPY RESULT TEXT
   const handleCopyResult = (r: Result) => {
-    const p1Name = festStore.getParticipantFullName(r.firstPlaceParticipantName, r.firstPlaceRegId);
-    const p2Name = r.secondPlaceParticipantName ? festStore.getParticipantFullName(r.secondPlaceParticipantName, r.secondPlaceRegId) : '';
-    const p3Name = r.thirdPlaceParticipantName ? festStore.getParticipantFullName(r.thirdPlaceParticipantName, r.thirdPlaceRegId) : '';
+    const winners = festStore.getResultWinners(r);
+    const p1Text = winners.first.map(w => `${festStore.getParticipantFullName(w.participantName, w.regId)} (${w.groupName})`).join(', ');
+    const p2Text = winners.second.map(w => `${festStore.getParticipantFullName(w.participantName, w.regId)} (${w.groupName})`).join(', ');
+    const p3Text = winners.third.map(w => `${festStore.getParticipantFullName(w.participantName, w.regId)} (${w.groupName})`).join(', ');
+    
     const text = [
       `📢 OFFICIAL RESULT: ${r.competitionName}`,
-      `🥇 1st Place: ${p1Name} (${r.firstPlaceGroupName})`,
-      p2Name ? `🥈 2nd Place: ${p2Name} (${r.secondPlaceGroupName})` : '',
-      p3Name ? `🥉 3rd Place: ${p3Name} (${r.thirdPlaceGroupName})` : '',
+      p1Text ? `🥇 1st Place: ${p1Text}` : '',
+      p2Text ? `🥈 2nd Place: ${p2Text}` : '',
+      p3Text ? `🥉 3rd Place: ${p3Text}` : '',
       `Published on: ${new Date(r.publishedAt).toLocaleString()}`
     ].filter(Boolean).join('\n');
 
@@ -757,44 +759,66 @@ export const MediaDashboard: React.FC<MediaDashboardProps> = ({
                     </div>
 
                     {/* Winner / Marks Summary Details */}
-                    {publishedResult ? (
-                      <div className="p-3 bg-[#121424] rounded-xl border border-[#292d4a] grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
-                        <div className="text-amber-300 font-bold flex items-center gap-1.5 truncate">
-                          <span>🥇</span>
-                          <ParticipantAvatar
-                            name={festStore.getParticipantFullName(publishedResult.firstPlaceParticipantName, publishedResult.firstPlaceRegId)}
-                            photoUrl={festStore.getParticipantPhotoUrl(publishedResult.firstPlaceParticipantName, publishedResult.firstPlaceRegId)}
-                            className="w-5 h-5 text-[9px] shrink-0"
-                          />
-                          <span className="truncate">{festStore.getParticipantFullName(publishedResult.firstPlaceParticipantName, publishedResult.firstPlaceRegId)}</span>
-                          <span className="text-slate-400 text-[10px]">({publishedResult.firstPlaceGroupName})</span>
+                    {publishedResult ? (() => {
+                      const w = festStore.getResultWinners(publishedResult);
+                      return (
+                        <div className="p-3 bg-[#121424] rounded-xl border border-[#292d4a] space-y-2 text-xs">
+                          {/* 1st Place */}
+                          {w.first.length > 0 && (
+                            <div className="flex flex-wrap items-center gap-3">
+                              {w.first.map((win, idx) => (
+                                <div key={idx} className="text-amber-300 font-bold flex items-center gap-1.5 truncate">
+                                  <span>🥇</span>
+                                  <ParticipantAvatar
+                                    name={festStore.getParticipantFullName(win.participantName, win.regId)}
+                                    photoUrl={festStore.getParticipantPhotoUrl(win.participantName, win.regId)}
+                                    className="w-5 h-5 text-[9px] shrink-0"
+                                  />
+                                  <span className="truncate">{festStore.getParticipantFullName(win.participantName, win.regId)}</span>
+                                  <span className="text-slate-400 text-[10px]">({win.groupName})</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* 2nd Place */}
+                          {w.second.length > 0 && (
+                            <div className="flex flex-wrap items-center gap-3">
+                              {w.second.map((win, idx) => (
+                                <div key={idx} className="text-slate-300 font-semibold flex items-center gap-1.5 truncate">
+                                  <span>🥈</span>
+                                  <ParticipantAvatar
+                                    name={festStore.getParticipantFullName(win.participantName, win.regId)}
+                                    photoUrl={festStore.getParticipantPhotoUrl(win.participantName, win.regId)}
+                                    className="w-5 h-5 text-[9px] shrink-0"
+                                  />
+                                  <span className="truncate">{festStore.getParticipantFullName(win.participantName, win.regId)}</span>
+                                  <span className="text-slate-400 text-[10px]">({win.groupName})</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* 3rd Place */}
+                          {w.third.length > 0 && (
+                            <div className="flex flex-wrap items-center gap-3">
+                              {w.third.map((win, idx) => (
+                                <div key={idx} className="text-amber-600 font-semibold flex items-center gap-1.5 truncate">
+                                  <span>🥉</span>
+                                  <ParticipantAvatar
+                                    name={festStore.getParticipantFullName(win.participantName, win.regId)}
+                                    photoUrl={festStore.getParticipantPhotoUrl(win.participantName, win.regId)}
+                                    className="w-5 h-5 text-[9px] shrink-0"
+                                  />
+                                  <span className="truncate">{festStore.getParticipantFullName(win.participantName, win.regId)}</span>
+                                  <span className="text-slate-400 text-[10px]">({win.groupName})</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
-                        {publishedResult.secondPlaceParticipantName && (
-                          <div className="text-slate-300 font-semibold flex items-center gap-1.5 truncate">
-                            <span>🥈</span>
-                            <ParticipantAvatar
-                              name={festStore.getParticipantFullName(publishedResult.secondPlaceParticipantName, publishedResult.secondPlaceRegId)}
-                              photoUrl={festStore.getParticipantPhotoUrl(publishedResult.secondPlaceParticipantName, publishedResult.secondPlaceRegId)}
-                              className="w-5 h-5 text-[9px] shrink-0"
-                            />
-                            <span className="truncate">{festStore.getParticipantFullName(publishedResult.secondPlaceParticipantName, publishedResult.secondPlaceRegId)}</span>
-                            <span className="text-slate-400 text-[10px]">({publishedResult.secondPlaceGroupName})</span>
-                          </div>
-                        )}
-                        {publishedResult.thirdPlaceParticipantName && (
-                          <div className="text-amber-600 font-semibold flex items-center gap-1.5 truncate">
-                            <span>🥉</span>
-                            <ParticipantAvatar
-                              name={festStore.getParticipantFullName(publishedResult.thirdPlaceParticipantName, publishedResult.thirdPlaceRegId)}
-                              photoUrl={festStore.getParticipantPhotoUrl(publishedResult.thirdPlaceParticipantName, publishedResult.thirdPlaceRegId)}
-                              className="w-5 h-5 text-[9px] shrink-0"
-                            />
-                            <span className="truncate">{festStore.getParticipantFullName(publishedResult.thirdPlaceParticipantName, publishedResult.thirdPlaceRegId)}</span>
-                            <span className="text-slate-400 text-[10px]">({publishedResult.thirdPlaceGroupName})</span>
-                          </div>
-                        )}
-                      </div>
-                    ) : hasJudgeMarks ? (
+                      );
+                    })() : hasJudgeMarks ? (
                       <div className="p-3 bg-[#121424] rounded-xl border border-amber-500/30 space-y-2 text-xs">
                         <div className="flex items-center justify-between text-[11px] font-bold text-amber-400">
                           <span className="flex items-center gap-1">

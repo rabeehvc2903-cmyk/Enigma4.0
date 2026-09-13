@@ -39,7 +39,14 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
   const availableGroups = Array.from(
     new Set(
       results
-        .flatMap((r) => [r.firstPlaceGroupName, r.secondPlaceGroupName, r.thirdPlaceGroupName])
+        .flatMap((r) => {
+          const w = festStore.getResultWinners(r);
+          return [
+            ...w.first.map((x) => x.groupName),
+            ...w.second.map((x) => x.groupName),
+            ...w.third.map((x) => x.groupName),
+          ];
+        })
         .filter(Boolean) as string[]
     )
   );
@@ -57,27 +64,34 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
     const compCategory = comp ? comp.category : undefined;
     const formattedCompName = formatCompetitionName(res.competitionName, compCategory);
 
+    const winners = festStore.getResultWinners(res);
+    const allWinnerNames = [
+      ...winners.first.map(w => festStore.getParticipantFullName(w.participantName, w.regId)),
+      ...winners.second.map(w => festStore.getParticipantFullName(w.participantName, w.regId)),
+      ...winners.third.map(w => festStore.getParticipantFullName(w.participantName, w.regId)),
+    ].join(' ').toLowerCase();
+
+    const allWinnerGroups = [
+      ...winners.first.map(w => w.groupName),
+      ...winners.second.map(w => w.groupName),
+      ...winners.third.map(w => w.groupName),
+    ];
+
     const term = searchTerm.trim().toLowerCase();
     const matchesSearch =
       !term ||
       res.competitionName.toLowerCase().includes(term) ||
       formattedCompName.toLowerCase().includes(term) ||
       (compCategory && compCategory.toLowerCase().includes(term)) ||
-      res.firstPlaceParticipantName.toLowerCase().includes(term) ||
-      res.firstPlaceGroupName.toLowerCase().includes(term) ||
-      (res.secondPlaceParticipantName && res.secondPlaceParticipantName.toLowerCase().includes(term)) ||
-      (res.secondPlaceGroupName && res.secondPlaceGroupName.toLowerCase().includes(term)) ||
-      (res.thirdPlaceParticipantName && res.thirdPlaceParticipantName.toLowerCase().includes(term)) ||
-      (res.thirdPlaceGroupName && res.thirdPlaceGroupName.toLowerCase().includes(term));
+      allWinnerNames.includes(term) ||
+      allWinnerGroups.some(g => g.toLowerCase().includes(term));
 
     const matchesCategory =
       categoryFilter === 'All' || (compCategory && compCategory === categoryFilter);
 
     const matchesGroup =
       groupFilter === 'All' ||
-      res.firstPlaceGroupName === groupFilter ||
-      res.secondPlaceGroupName === groupFilter ||
-      res.thirdPlaceGroupName === groupFilter;
+      allWinnerGroups.includes(groupFilter);
 
     return matchesSearch && matchesCategory && matchesGroup;
   });
@@ -263,28 +277,31 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {filteredResults.map((res) => {
               const comp = competitions.find((c) => c.id === res.competitionId);
-              const category = comp ? comp.category : 'Category';
+              const winners = festStore.getResultWinners(res);
 
-              const cleanName = (str?: string) => str ? str.replace(/\s*\([^)]*\)/g, '').trim() : '';
-
-              const p1 = {
-                name: festStore.getParticipantFullName(res.firstPlaceParticipantName, res.firstPlaceRegId),
-                group: res.firstPlaceGroupName,
+              const firstWinners = winners.first.map(w => ({
+                name: festStore.getParticipantFullName(w.participantName, w.regId),
+                group: w.groupName,
                 points: comp?.points1st ?? 10,
-                photoUrl: festStore.getParticipantPhotoUrl(res.firstPlaceParticipantName, res.firstPlaceRegId),
-              };
-              const p2 = res.secondPlaceParticipantName ? {
-                name: festStore.getParticipantFullName(res.secondPlaceParticipantName, res.secondPlaceRegId),
-                group: res.secondPlaceGroupName,
+                photoUrl: festStore.getParticipantPhotoUrl(w.participantName, w.regId),
+                code: w.codeLetter,
+              }));
+
+              const secondWinners = winners.second.map(w => ({
+                name: festStore.getParticipantFullName(w.participantName, w.regId),
+                group: w.groupName,
                 points: comp?.points2nd ?? 5,
-                photoUrl: festStore.getParticipantPhotoUrl(res.secondPlaceParticipantName, res.secondPlaceRegId),
-              } : null;
-              const p3 = res.thirdPlaceParticipantName ? {
-                name: festStore.getParticipantFullName(res.thirdPlaceParticipantName, res.thirdPlaceRegId),
-                group: res.thirdPlaceGroupName,
+                photoUrl: festStore.getParticipantPhotoUrl(w.participantName, w.regId),
+                code: w.codeLetter,
+              }));
+
+              const thirdWinners = winners.third.map(w => ({
+                name: festStore.getParticipantFullName(w.participantName, w.regId),
+                group: w.groupName,
                 points: comp?.points3rd ?? 3,
-                photoUrl: festStore.getParticipantPhotoUrl(res.thirdPlaceParticipantName, res.thirdPlaceRegId),
-              } : null;
+                photoUrl: festStore.getParticipantPhotoUrl(w.participantName, w.regId),
+                code: w.codeLetter,
+              }));
 
               return (
                 <div 
@@ -292,92 +309,109 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
                   className="poster-card p-5 sm:p-6 bg-[#121424] rounded-[28px] border border-[#292d4a] hover:border-purple-500/50 space-y-5 shadow-2xl transition-all relative overflow-hidden"
                 >
                   {/* Card Header */}
-                  <div className="border-b border-[#292d4a]/70 pb-3">
+                  <div className="border-b border-[#292d4a]/70 pb-3 flex items-center justify-between gap-2">
                     <h3 className="text-base sm:text-lg font-extrabold text-white">
                       {formatCompetitionName(res.competitionName, comp?.category)}
                     </h3>
+                    <span className="text-[11px] font-bold text-slate-400 bg-[#181b30] px-2.5 py-1 rounded-lg border border-[#292d4a]">
+                      {comp?.category || 'General'}
+                    </span>
                   </div>
 
-
-
-                  {/* TOP PODIUM AREA (Matching Leaderboard reference image) */}
+                  {/* TOP PODIUM AREA */}
                   <div className="relative pt-7 pb-5 px-3 bg-gradient-to-b from-[#181a33] to-[#121424] rounded-2xl border border-[#292d4a]/60">
                     
                     {/* Radial Glow behind 1st Place */}
-                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-28 h-28 bg-purple-600/20 rounded-full blur-2xl pointer-events-none" />
+                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-36 h-36 bg-purple-600/20 rounded-full blur-2xl pointer-events-none" />
 
                     <div className="flex items-end justify-center gap-2 sm:gap-4 relative z-0">
                       
                       {/* 2nd Place (Left) */}
-                      {p2 ? (
-                        <div className="flex flex-col items-center text-center w-24 sm:w-28 order-1">
-                          <div className="relative mb-2">
-                            <ParticipantAvatar name={p2.name} photoUrl={p2.photoUrl} className="w-13 h-13 sm:w-15 sm:h-15 border-2 border-indigo-400 shadow-lg shadow-indigo-500/20" />
-                            <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 bg-indigo-600 border border-indigo-300 text-white font-extrabold text-[10px] w-5 h-5 rounded-full flex items-center justify-center shadow-md">
-                              2
+                      <div className="flex flex-col items-center text-center w-24 sm:w-32 order-1 space-y-3">
+                        {secondWinners.length > 0 ? (
+                          secondWinners.map((p2, idx) => (
+                            <div key={idx} className="flex flex-col items-center w-full">
+                              <div className="relative mb-2">
+                                <ParticipantAvatar name={p2.name} photoUrl={p2.photoUrl} className="w-12 h-12 sm:w-14 sm:h-14 border-2 border-indigo-400 shadow-lg shadow-indigo-500/20" />
+                                <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 bg-indigo-600 border border-indigo-300 text-white font-extrabold text-[10px] w-5 h-5 rounded-full flex items-center justify-center shadow-md">
+                                  2
+                                </div>
+                              </div>
+                              <div className="font-bold text-white text-xs truncate w-full mt-0.5" title={p2.name}>
+                                {p2.name}
+                              </div>
+                              <div className="text-[11px] font-semibold text-indigo-300 flex items-center justify-center gap-0.5 mt-0.5">
+                                <span className="text-amber-400 text-[10px]">🪙</span>
+                                <span>{p2.points} pts</span>
+                              </div>
+                              <div className="text-[10px] font-bold text-indigo-300/80 truncate w-full uppercase mt-0.5">
+                                {p2.group}
+                              </div>
                             </div>
-                          </div>
-                          <div className="font-bold text-white text-xs truncate w-full mt-1" title={p2.name}>
-                            {p2.name}
-                          </div>
-                          <div className="text-[11px] font-semibold text-indigo-300 flex items-center justify-center gap-0.5 mt-0.5">
-                            <span className="text-amber-400 text-[10px]">🪙</span>
-                            <span>{p2.points} pts</span>
-                          </div>
-                          <div className="text-[10px] font-bold text-indigo-300/80 truncate w-full uppercase mt-0.5">
-                            {p2.group}
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="w-24 sm:w-28 order-1" />
-                      )}
+                          ))
+                        ) : (
+                          <div className="w-full text-slate-600 text-[10px] italic py-4">No 2nd place</div>
+                        )}
+                      </div>
 
                       {/* 1st Place (Center - Elevated with Crown) */}
-                      <div className="flex flex-col items-center text-center w-28 sm:w-32 order-2 -mt-4">
-                        <div className="relative mb-2">
-                          <div className="absolute -top-5 left-1/2 -translate-x-1/2 text-amber-400 drop-shadow-[0_2px_8px_rgba(251,191,36,0.6)]">
-                            <Crown className="w-5 h-5 fill-amber-400" />
-                          </div>
-                          <ParticipantAvatar name={p1.name} photoUrl={p1.photoUrl} className="w-16 h-16 sm:w-20 sm:h-20 border-2 border-amber-400 shadow-xl shadow-amber-500/30" />
-                          <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 bg-purple-600 border border-amber-300 text-white font-extrabold text-xs w-6 h-6 rounded-full flex items-center justify-center shadow-lg">
-                            1
-                          </div>
-                        </div>
-                        <div className="font-extrabold text-white text-xs sm:text-sm truncate w-full mt-1" title={p1.name}>
-                          {p1.name}
-                        </div>
-                        <div className="text-xs font-bold text-amber-400 flex items-center justify-center gap-1 mt-0.5">
-                          <span>🪙</span>
-                          <span>{p1.points} pts</span>
-                        </div>
-                        <div className="text-[10px] font-bold text-amber-300/90 truncate w-full uppercase tracking-wide mt-0.5">
-                          {p1.group}
-                        </div>
+                      <div className="flex flex-col items-center text-center w-28 sm:w-36 order-2 -mt-4 space-y-3">
+                        {firstWinners.length > 0 ? (
+                          firstWinners.map((p1, idx) => (
+                            <div key={idx} className="flex flex-col items-center w-full">
+                              <div className="relative mb-2">
+                                <div className="absolute -top-5 left-1/2 -translate-x-1/2 text-amber-400 drop-shadow-[0_2px_8px_rgba(251,191,36,0.6)]">
+                                  <Crown className="w-5 h-5 fill-amber-400" />
+                                </div>
+                                <ParticipantAvatar name={p1.name} photoUrl={p1.photoUrl} className="w-16 h-16 sm:w-18 sm:h-18 border-2 border-amber-400 shadow-xl shadow-amber-500/30" />
+                                <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 bg-purple-600 border border-amber-300 text-white font-extrabold text-xs w-6 h-6 rounded-full flex items-center justify-center shadow-lg">
+                                  1
+                                </div>
+                              </div>
+                              <div className="font-extrabold text-white text-xs sm:text-sm truncate w-full mt-1" title={p1.name}>
+                                {p1.name}
+                              </div>
+                              <div className="text-xs font-bold text-amber-400 flex items-center justify-center gap-1 mt-0.5">
+                                <span>🪙</span>
+                                <span>{p1.points} pts</span>
+                              </div>
+                              <div className="text-[10px] font-bold text-amber-300/90 truncate w-full uppercase tracking-wide mt-0.5">
+                                {p1.group}
+                              </div>
+                            </div>
+                          ))
+                        ) : (
+                          <div className="w-full text-slate-600 text-[10px] italic py-4">No 1st place</div>
+                        )}
                       </div>
 
                       {/* 3rd Place (Right) */}
-                      {p3 ? (
-                        <div className="flex flex-col items-center text-center w-24 sm:w-28 order-3">
-                          <div className="relative mb-2">
-                            <ParticipantAvatar name={p3.name} photoUrl={p3.photoUrl} className="w-13 h-13 sm:w-15 sm:h-15 border-2 border-amber-600 shadow-lg shadow-amber-600/20" />
-                            <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 bg-indigo-600 border border-amber-500 text-white font-extrabold text-[10px] w-5 h-5 rounded-full flex items-center justify-center shadow-md">
-                              3
+                      <div className="flex flex-col items-center text-center w-24 sm:w-32 order-3 space-y-3">
+                        {thirdWinners.length > 0 ? (
+                          thirdWinners.map((p3, idx) => (
+                            <div key={idx} className="flex flex-col items-center w-full">
+                              <div className="relative mb-2">
+                                <ParticipantAvatar name={p3.name} photoUrl={p3.photoUrl} className="w-12 h-12 sm:w-14 sm:h-14 border-2 border-amber-600 shadow-lg shadow-amber-600/20" />
+                                <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 bg-indigo-600 border border-amber-500 text-white font-extrabold text-[10px] w-5 h-5 rounded-full flex items-center justify-center shadow-md">
+                                  3
+                                </div>
+                              </div>
+                              <div className="font-bold text-white text-xs truncate w-full mt-0.5" title={p3.name}>
+                                {p3.name}
+                              </div>
+                              <div className="text-[11px] font-semibold text-amber-500 flex items-center justify-center gap-0.5 mt-0.5">
+                                <span className="text-amber-400 text-[10px]">🪙</span>
+                                <span>{p3.points} pts</span>
+                              </div>
+                              <div className="text-[10px] font-bold text-amber-400/80 truncate w-full uppercase mt-0.5">
+                                {p3.group}
+                              </div>
                             </div>
-                          </div>
-                          <div className="font-bold text-white text-xs truncate w-full mt-1" title={p3.name}>
-                            {p3.name}
-                          </div>
-                          <div className="text-[11px] font-semibold text-amber-500 flex items-center justify-center gap-0.5 mt-0.5">
-                            <span className="text-amber-400 text-[10px]">🪙</span>
-                            <span>{p3.points} pts</span>
-                          </div>
-                          <div className="text-[10px] font-bold text-amber-400/80 truncate w-full uppercase mt-0.5">
-                            {p3.group}
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="w-24 sm:w-28 order-3" />
-                      )}
+                          ))
+                        ) : (
+                          <div className="w-full text-slate-600 text-[10px] italic py-4">No 3rd place</div>
+                        )}
+                      </div>
 
                     </div>
                   </div>

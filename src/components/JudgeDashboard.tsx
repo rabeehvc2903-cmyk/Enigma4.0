@@ -42,6 +42,9 @@ export const JudgeDashboard: React.FC<JudgeDashboardProps> = ({
   const [marksState, setMarksState] = useState<{ [regId: string]: string }>({});
   const [judgeRanksState, setJudgeRanksState] = useState<{ [regId: string]: number | undefined }>({});
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string>('');
+  const [calculateWithPerformancePoints, setCalculateWithPerformancePoints] = useState<boolean>(() =>
+    festStore.getCalculateWithPerformancePoints()
+  );
 
   // Subscribe to real-time store changes (so when Admin assigns/changes competitions, it updates live on Judge desk)
   useEffect(() => {
@@ -49,6 +52,7 @@ export const JudgeDashboard: React.FC<JudgeDashboardProps> = ({
       const ids = festStore.getActiveValuationCompIds();
       setAssignedCompIds(ids);
       setSelectedCompId(prev => (ids.includes(prev) ? prev : (ids[0] || '')));
+      setCalculateWithPerformancePoints(festStore.getCalculateWithPerformancePoints());
     });
     return unsubscribe;
   }, []);
@@ -139,20 +143,16 @@ export const JudgeDashboard: React.FC<JudgeDashboardProps> = ({
     }));
   };
 
-  // Handle Judge Rank Selection (1st, 2nd, 3rd place tie breaker)
+  // Handle Judge Rank Selection (Allows multiple participants to receive 1st, 2nd, or 3rd place)
   const handleRankSelect = (regId: string, rank: number | undefined) => {
     setJudgeRanksState(prev => {
       const updated = { ...prev };
-      if (rank === undefined || rank === 0) {
+      // Toggle off if clicked again or if cleared
+      if (rank === undefined || rank === 0 || updated[regId] === rank) {
         delete updated[regId];
         return updated;
       }
-      // If another participant already had this rank in this competition, clear them to avoid duplicate rank assignment
-      Object.keys(updated).forEach(k => {
-        if (updated[k] === rank && k !== regId) {
-          delete updated[k];
-        }
-      });
+      // Set rank without clearing other participants (supports multiple 1st, 2nd, 3rd)
       updated[regId] = rank;
       return updated;
     });
@@ -286,8 +286,12 @@ export const JudgeDashboard: React.FC<JudgeDashboardProps> = ({
                     <thead className="bg-[#181b30] text-slate-400 font-bold uppercase text-[10px] tracking-wider border-b border-[#292d4a]">
                       <tr>
                         <th className="py-3.5 px-6 text-center w-32">Code Letter</th>
-                        <th className="py-3.5 px-6 text-center">Marks / Score</th>
-                        <th className="py-3.5 px-6 text-center">Rank / Tie-Break</th>
+                        {calculateWithPerformancePoints && (
+                          <th className="py-3.5 px-6 text-center">Marks / Score</th>
+                        )}
+                        <th className="py-3.5 px-6 text-center">
+                          {calculateWithPerformancePoints ? 'Rank / Tie-Break' : 'Winner Ranking (1st, 2nd, 3rd)'}
+                        </th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-[#292d4a] bg-[#121424]">
@@ -295,7 +299,7 @@ export const JudgeDashboard: React.FC<JudgeDashboardProps> = ({
                         const currentMark = marksState[reg.id] !== undefined ? marksState[reg.id] : reg.mark || '';
                         const currentRank = judgeRanksState[reg.id] !== undefined ? judgeRanksState[reg.id] : reg.judgeRank;
                         const hasCode = !!reg.codeLetter;
-                        const isTied = currentMark.trim() !== '' && (markCounts[currentMark.trim()] || 0) > 1;
+                        const isTied = calculateWithPerformancePoints && currentMark.trim() !== '' && (markCounts[currentMark.trim()] || 0) > 1;
 
                         return (
                           <tr key={reg.id} className={`hover:bg-[#181b30]/50 transition-colors ${isTied ? 'bg-indigo-950/20' : ''}`}>
@@ -310,21 +314,23 @@ export const JudgeDashboard: React.FC<JudgeDashboardProps> = ({
                                 </span>
                               )}
                             </td>
-                            <td className="py-3.5 px-6 text-center">
-                              <div className="inline-flex flex-col items-center gap-1">
-                                <input
-                                  type="text"
-                                  value={currentMark}
-                                  onChange={(e) => handleMarkChange(reg.id, e.target.value)}
-                                  className={`w-28 bg-[#181b30] border ${isTied ? 'border-amber-400/80 focus:border-amber-400' : 'border-[#292d4a] focus:border-emerald-500'} rounded-xl px-3 py-2 text-xs text-white font-bold text-center focus:outline-none transition-all`}
-                                />
-                                {isTied && (
-                                  <span className="text-[9px] font-bold text-amber-400 bg-amber-500/15 border border-amber-500/30 px-1.5 py-0.5 rounded-full inline-flex items-center gap-0.5">
-                                    ⚖️ Tied Mark
-                                  </span>
-                                )}
-                              </div>
-                            </td>
+                            {calculateWithPerformancePoints && (
+                              <td className="py-3.5 px-6 text-center">
+                                <div className="inline-flex flex-col items-center gap-1">
+                                  <input
+                                    type="text"
+                                    value={currentMark}
+                                    onChange={(e) => handleMarkChange(reg.id, e.target.value)}
+                                    className={`w-28 bg-[#181b30] border ${isTied ? 'border-amber-400/80 focus:border-amber-400' : 'border-[#292d4a] focus:border-emerald-500'} rounded-xl px-3 py-2 text-xs text-white font-bold text-center focus:outline-none transition-all`}
+                                  />
+                                  {isTied && (
+                                    <span className="text-[9px] font-bold text-amber-400 bg-amber-500/15 border border-amber-500/30 px-1.5 py-0.5 rounded-full inline-flex items-center gap-0.5">
+                                      ⚖️ Tied Mark
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+                            )}
                             <td className="py-3.5 px-6 text-center">
                               <div className="inline-flex items-center gap-1 bg-[#0b0c16] p-1 rounded-xl border border-[#292d4a]">
                                 <button

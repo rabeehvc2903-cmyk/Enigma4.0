@@ -58,14 +58,40 @@ export const ResultPosterModal: React.FC<ResultPosterModalProps> = ({
 
   const cleanName = (str?: string) => (str ? str.replace(/\s*\([^)]*\)/g, '').trim() : '');
 
-  const p1 = {
+  const winners = festStore.getResultWinners(result);
+
+  const firstList = winners.first.map(w => ({
+    name: festStore.getParticipantFullName(w.participantName, w.regId),
+    group: w.groupName,
+    code: w.codeLetter,
+    points: comp?.points1st ?? 10,
+    photoUrl: festStore.getParticipantPhotoUrl(w.participantName, w.regId),
+  }));
+
+  const secondList = winners.second.map(w => ({
+    name: festStore.getParticipantFullName(w.participantName, w.regId),
+    group: w.groupName,
+    code: w.codeLetter,
+    points: comp?.points2nd ?? 5,
+    photoUrl: festStore.getParticipantPhotoUrl(w.participantName, w.regId),
+  }));
+
+  const thirdList = winners.third.map(w => ({
+    name: festStore.getParticipantFullName(w.participantName, w.regId),
+    group: w.groupName,
+    code: w.codeLetter,
+    points: comp?.points3rd ?? 3,
+    photoUrl: festStore.getParticipantPhotoUrl(w.participantName, w.regId),
+  }));
+
+  const p1 = firstList[0] || {
     name: festStore.getParticipantFullName(result.firstPlaceParticipantName, result.firstPlaceRegId),
     group: result.firstPlaceGroupName,
     code: result.firstPlaceCodeLetter,
     points: comp?.points1st ?? 10,
     photoUrl: festStore.getParticipantPhotoUrl(result.firstPlaceParticipantName, result.firstPlaceRegId),
   };
-  const p2 = result.secondPlaceParticipantName
+  const p2 = secondList[0] || (result.secondPlaceParticipantName
     ? {
         name: festStore.getParticipantFullName(result.secondPlaceParticipantName, result.secondPlaceRegId),
         group: result.secondPlaceGroupName || '',
@@ -73,8 +99,8 @@ export const ResultPosterModal: React.FC<ResultPosterModalProps> = ({
         points: comp?.points2nd ?? 5,
         photoUrl: festStore.getParticipantPhotoUrl(result.secondPlaceParticipantName, result.secondPlaceRegId),
       }
-    : null;
-  const p3 = result.thirdPlaceParticipantName
+    : null);
+  const p3 = thirdList[0] || (result.thirdPlaceParticipantName
     ? {
         name: festStore.getParticipantFullName(result.thirdPlaceParticipantName, result.thirdPlaceRegId),
         group: result.thirdPlaceGroupName || '',
@@ -82,7 +108,7 @@ export const ResultPosterModal: React.FC<ResultPosterModalProps> = ({
         points: comp?.points3rd ?? 3,
         photoUrl: festStore.getParticipantPhotoUrl(result.thirdPlaceParticipantName, result.thirdPlaceRegId),
       }
-    : null;
+    : null);
 
   // Background Theme Styles
   const getThemeBackground = () => {
@@ -557,81 +583,95 @@ export const ResultPosterModal: React.FC<ResultPosterModalProps> = ({
             {/* Podium Visual Layout */}
             <div className="space-y-3 relative z-10">
               {/* 1st Place Champion Spotlight */}
-              <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-500/20 via-purple-600/20 to-amber-500/20 border-2 border-amber-400/70 text-center space-y-2 shadow-xl relative overflow-hidden">
-                <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-amber-500 text-slate-950 font-black text-[10px] px-3 py-0.5 rounded-full flex items-center gap-1 shadow-md uppercase tracking-wider">
-                  <Crown className="w-3 h-3 fill-slate-950" />
-                  <span>1st Place Champion</span>
-                </div>
+              {firstList.length > 0 ? (
+                <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-500/20 via-purple-600/20 to-amber-500/20 border-2 border-amber-400/70 text-center space-y-3 shadow-xl relative overflow-hidden">
+                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-amber-500 text-slate-950 font-black text-[10px] px-3 py-0.5 rounded-full flex items-center gap-1 shadow-md uppercase tracking-wider">
+                    <Crown className="w-3 h-3 fill-slate-950" />
+                    <span>1st Place Champion{firstList.length > 1 ? ` (${firstList.length} Winners)` : ''}</span>
+                  </div>
 
-                <div className="pt-2 flex flex-col items-center">
-                  <ParticipantAvatar
-                    name={p1.name}
-                    photoUrl={p1.photoUrl}
-                    className="w-16 h-16 border-2 border-amber-400 shadow-xl shadow-amber-500/40 mb-1.5"
-                  />
-                  <h4 className="text-base font-black text-white tracking-wide">
-                    {p1.name}
-                  </h4>
-                  <div className="flex items-center gap-2 mt-1">
-                    <span className="px-2.5 py-0.5 rounded-lg bg-amber-500/20 text-amber-300 font-bold text-[10px] uppercase border border-amber-500/30">
-                      {p1.group}
-                    </span>
-                    <span className="text-amber-400 font-black text-xs">
-                      🪙 {p1.points} pts
-                    </span>
+                  <div className="pt-2 space-y-2">
+                    {firstList.map((p1Winner, idx) => (
+                      <div key={idx} className="flex flex-col items-center">
+                        <ParticipantAvatar
+                          name={p1Winner.name}
+                          photoUrl={p1Winner.photoUrl}
+                          className="w-14 h-14 border-2 border-amber-400 shadow-xl shadow-amber-500/40 mb-1"
+                        />
+                        <h4 className="text-sm font-black text-white tracking-wide">
+                          {p1Winner.name}
+                        </h4>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="px-2.5 py-0.5 rounded-lg bg-amber-500/20 text-amber-300 font-bold text-[10px] uppercase border border-amber-500/30">
+                            {p1Winner.group}
+                          </span>
+                          <span className="text-amber-400 font-black text-xs">
+                            🪙 {p1Winner.points} pts
+                          </span>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
-              </div>
+              ) : null}
 
               {/* 2nd & 3rd Place Grid */}
-              {(p2 || p3) && (
+              {(secondList.length > 0 || thirdList.length > 0) && (
                 <div className="grid grid-cols-2 gap-3">
                   {/* 2nd Place */}
-                  {p2 ? (
-                    <div className="p-3 rounded-2xl bg-[#151728]/90 border border-slate-400/50 text-center space-y-1.5 shadow-md relative">
+                  {secondList.length > 0 ? (
+                    <div className="p-3 rounded-2xl bg-[#151728]/90 border border-slate-400/50 text-center space-y-2 shadow-md relative">
                       <div className="absolute -top-2.5 left-1/2 -translate-x-1/2 bg-slate-300 text-slate-950 font-extrabold text-[9px] px-2 py-0.5 rounded-full uppercase tracking-wider">
-                        2nd Place
+                        2nd Place{secondList.length > 1 ? ` (${secondList.length})` : ''}
                       </div>
-                      <div className="pt-1 flex flex-col items-center">
-                        <ParticipantAvatar
-                          name={p2.name}
-                          photoUrl={p2.photoUrl}
-                          className="w-11 h-11 border border-slate-300 shadow-md mb-1"
-                        />
-                        <div className="text-xs font-bold text-white truncate w-full" title={p2.name}>
-                          {p2.name}
-                        </div>
-                        <div className="text-[10px] text-slate-300 font-semibold truncate w-full uppercase">
-                          {p2.group}
-                        </div>
-                        <div className="text-[10px] font-bold text-amber-400">
-                          🪙 {p2.points} pts
-                        </div>
+                      <div className="pt-1 space-y-2">
+                        {secondList.map((p2Winner, idx) => (
+                          <div key={idx} className="flex flex-col items-center">
+                            <ParticipantAvatar
+                              name={p2Winner.name}
+                              photoUrl={p2Winner.photoUrl}
+                              className="w-10 h-10 border border-slate-300 shadow-md mb-1"
+                            />
+                            <div className="text-xs font-bold text-white truncate w-full" title={p2Winner.name}>
+                              {p2Winner.name}
+                            </div>
+                            <div className="text-[10px] text-slate-300 font-semibold truncate w-full uppercase">
+                              {p2Winner.group}
+                            </div>
+                            <div className="text-[10px] font-bold text-amber-400">
+                              🪙 {p2Winner.points} pts
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     </div>
                   ) : <div />}
 
                   {/* 3rd Place */}
-                  {p3 ? (
-                    <div className="p-3 rounded-2xl bg-[#151728]/90 border border-amber-600/50 text-center space-y-1.5 shadow-md relative">
+                  {thirdList.length > 0 ? (
+                    <div className="p-3 rounded-2xl bg-[#151728]/90 border border-amber-600/50 text-center space-y-2 shadow-md relative">
                       <div className="absolute -top-2.5 left-1/2 -translate-x-1/2 bg-amber-600 text-white font-extrabold text-[9px] px-2 py-0.5 rounded-full uppercase tracking-wider">
-                        3rd Place
+                        3rd Place{thirdList.length > 1 ? ` (${thirdList.length})` : ''}
                       </div>
-                      <div className="pt-1 flex flex-col items-center">
-                        <ParticipantAvatar
-                          name={p3.name}
-                          photoUrl={p3.photoUrl}
-                          className="w-11 h-11 border border-amber-600 shadow-md mb-1"
-                        />
-                        <div className="text-xs font-bold text-white truncate w-full" title={p3.name}>
-                          {p3.name}
-                        </div>
-                        <div className="text-[10px] text-amber-300/80 font-semibold truncate w-full uppercase">
-                          {p3.group}
-                        </div>
-                        <div className="text-[10px] font-bold text-amber-400">
-                          🪙 {p3.points} pts
-                        </div>
+                      <div className="pt-1 space-y-2">
+                        {thirdList.map((p3Winner, idx) => (
+                          <div key={idx} className="flex flex-col items-center">
+                            <ParticipantAvatar
+                              name={p3Winner.name}
+                              photoUrl={p3Winner.photoUrl}
+                              className="w-10 h-10 border border-amber-600 shadow-md mb-1"
+                            />
+                            <div className="text-xs font-bold text-white truncate w-full" title={p3Winner.name}>
+                              {p3Winner.name}
+                            </div>
+                            <div className="text-[10px] text-amber-300/80 font-semibold truncate w-full uppercase">
+                              {p3Winner.group}
+                            </div>
+                            <div className="text-[10px] font-bold text-amber-400">
+                              🪙 {p3Winner.points} pts
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     </div>
                   ) : <div />}

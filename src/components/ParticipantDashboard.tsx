@@ -1,7 +1,7 @@
 import React from 'react';
 import { UserProfile, Competition, Registration, Result, Group } from '../types';
 import { Calendar, MapPin, Clock, Trophy, CheckCircle } from 'lucide-react';
-import { formatStageName, formatCompetitionName } from '../lib/store';
+import { formatStageName, formatCompetitionName, festStore } from '../lib/store';
 import { getParticipantPhoto } from '../lib/avatarUtils';
 
 interface ParticipantDashboardProps {
@@ -51,15 +51,19 @@ export const ParticipantDashboard: React.FC<ParticipantDashboardProps> = ({
 
   // My published wins
   const myRegIds = new Set(myRegs.map(r => r.id));
-  const myWins = results.filter(res => {
-    const isFirst = (res.firstPlaceRegId && myRegIds.has(res.firstPlaceRegId)) || 
-                    (res.firstPlaceParticipantName && (res.firstPlaceParticipantName.toLowerCase().includes(currentUser.name.toLowerCase()) || res.firstPlaceParticipantName.toLowerCase().includes(fullName.toLowerCase())));
-    const isSecond = (res.secondPlaceRegId && myRegIds.has(res.secondPlaceRegId)) || 
-                     (res.secondPlaceParticipantName && (res.secondPlaceParticipantName.toLowerCase().includes(currentUser.name.toLowerCase()) || res.secondPlaceParticipantName.toLowerCase().includes(fullName.toLowerCase())));
-    const isThird = (res.thirdPlaceRegId && myRegIds.has(res.thirdPlaceRegId)) || 
-                    (res.thirdPlaceParticipantName && (res.thirdPlaceParticipantName.toLowerCase().includes(currentUser.name.toLowerCase()) || res.thirdPlaceParticipantName.toLowerCase().includes(fullName.toLowerCase())));
-    return isFirst || isSecond || isThird;
-  });
+  const myWins = results.map(res => {
+    const winners = festStore.getResultWinners(res);
+    const isFirst = winners.first.some(w => myRegIds.has(w.regId) || w.participantName.toLowerCase().includes(currentUser.name.toLowerCase()));
+    const isSecond = winners.second.some(w => myRegIds.has(w.regId) || w.participantName.toLowerCase().includes(currentUser.name.toLowerCase()));
+    const isThird = winners.third.some(w => myRegIds.has(w.regId) || w.participantName.toLowerCase().includes(currentUser.name.toLowerCase()));
+    if (isFirst || isSecond || isThird) {
+      return {
+        res,
+        rank: isFirst ? '🥇 1st Place' : isSecond ? '🥈 2nd Place' : '🥉 3rd Place'
+      };
+    }
+    return null;
+  }).filter(Boolean) as { res: Result; rank: string }[];
 
   return (
     <div className="space-y-6 py-4 sm:py-6 pb-24 max-w-4xl mx-auto">
@@ -144,7 +148,7 @@ export const ParticipantDashboard: React.FC<ParticipantDashboardProps> = ({
             {sortedCompetitions.map((comp) => {
               const status = getCompetitionStatus(comp);
               const myReg = myRegs.find(r => r.competitionId === comp.id);
-              const compWin = myWins.find(w => w.competitionId === comp.id || w.competitionName === comp.name);
+              const compWin = myWins.find(w => w.res.competitionId === comp.id || w.res.competitionName === comp.name);
 
               return (
                 <div 
@@ -201,9 +205,7 @@ export const ParticipantDashboard: React.FC<ParticipantDashboardProps> = ({
                       {compWin && (
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[11px] font-bold">
                           <Trophy className="w-3 h-3 text-amber-400" />
-                          {(compWin.firstPlaceRegId && myRegIds.has(compWin.firstPlaceRegId)) || compWin.firstPlaceParticipantName?.toLowerCase().includes(currentUser.name.toLowerCase()) ? '🥇 1st Place' :
-                           (compWin.secondPlaceRegId && myRegIds.has(compWin.secondPlaceRegId)) || compWin.secondPlaceParticipantName?.toLowerCase().includes(currentUser.name.toLowerCase()) ? '🥈 2nd Place' :
-                           '🥉 3rd Place'}
+                          {compWin.rank}
                         </span>
                       )}
                     </div>
@@ -262,15 +264,13 @@ export const ParticipantDashboard: React.FC<ParticipantDashboardProps> = ({
 
           <div className="space-y-3">
             {myWins.map((win) => (
-              <div key={win.id} className="p-4 bg-[#181b30] border border-amber-500/30 rounded-2xl flex items-center justify-between">
+              <div key={win.res.id} className="p-4 bg-[#181b30] border border-amber-500/30 rounded-2xl flex items-center justify-between">
                 <div>
-                  <h4 className="font-extrabold text-white text-base">{win.competitionName}</h4>
+                  <h4 className="font-extrabold text-white text-base">{win.res.competitionName}</h4>
                   <p className="text-xs text-slate-400 font-mono mt-0.5">Published Result</p>
                 </div>
                 <span className="text-xl font-bold">
-                  {(win.firstPlaceRegId && myRegIds.has(win.firstPlaceRegId)) || win.firstPlaceParticipantName.toLowerCase().includes(currentUser.name.toLowerCase()) ? '🥇 1st Place' : ''}
-                  {(win.secondPlaceRegId && myRegIds.has(win.secondPlaceRegId)) || (win.secondPlaceParticipantName && win.secondPlaceParticipantName.toLowerCase().includes(currentUser.name.toLowerCase())) ? '🥈 2nd Place' : ''}
-                  {(win.thirdPlaceRegId && myRegIds.has(win.thirdPlaceRegId)) || (win.thirdPlaceParticipantName && win.thirdPlaceParticipantName.toLowerCase().includes(currentUser.name.toLowerCase())) ? '🥉 3rd Place' : ''}
+                  {win.rank}
                 </span>
               </div>
             ))}
