@@ -314,7 +314,6 @@ export const JudgeDashboard: React.FC<JudgeDashboardProps> = ({
                               <div className="inline-flex flex-col items-center gap-1">
                                 <input
                                   type="text"
-                                  placeholder="e.g. 85 / A+"
                                   value={currentMark}
                                   onChange={(e) => handleMarkChange(reg.id, e.target.value)}
                                   className={`w-28 bg-[#181b30] border ${isTied ? 'border-amber-400/80 focus:border-amber-400' : 'border-[#292d4a] focus:border-emerald-500'} rounded-xl px-3 py-2 text-xs text-white font-bold text-center focus:outline-none transition-all`}

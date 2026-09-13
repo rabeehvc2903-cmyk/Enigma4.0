@@ -3235,8 +3235,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                 {stageComps.map((comp) => {
                                   const isAssigned = valuationCompIds.includes(comp.id);
                                   const compRegs = registrations.filter(r => r.competitionId === comp.id && r.isReported === true);
-                                  const hasMarks = compRegs.length > 0 && compRegs.some(r => r.mark !== undefined && r.mark !== null && String(r.mark).trim() !== '');
-                                  const isValuationDone = comp.status === 'completed' || comp.isPublishedResult || hasMarks;
+                                  const allCompRegs = registrations.filter(r => r.competitionId === comp.id);
+                                  const hasMarks = allCompRegs.length > 0 && allCompRegs.some(r => r.mark !== undefined && r.mark !== null && String(r.mark).trim() !== '');
+                                  const isValuationDone = hasMarks;
 
                                   return (
                                     <tr
