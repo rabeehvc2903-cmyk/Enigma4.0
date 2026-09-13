@@ -157,6 +157,7 @@ interface StoreData {
   stageCategoryMapping?: Record<string, string[]>;
   limitRules?: LimitRulesConfig;
   showGroupPointStatus?: boolean;
+  calculateWithPerformancePoints?: boolean;
   updatedAt?: string;
 }
 
@@ -280,7 +281,8 @@ class FestStore {
         website: ''
       },
       limitRules: DEFAULT_LIMIT_RULES,
-      showGroupPointStatus: true
+      showGroupPointStatus: true,
+      calculateWithPerformancePoints: true
     };
   }
 
@@ -395,6 +397,7 @@ class FestStore {
       if (Array.isArray(data.levels)) this.inMemoryState.levels = data.levels;
       if (Array.isArray(data.festivalDays)) this.inMemoryState.festivalDays = data.festivalDays;
       if (typeof data.showGroupPointStatus === 'boolean') this.inMemoryState.showGroupPointStatus = data.showGroupPointStatus;
+      if (typeof data.calculateWithPerformancePoints === 'boolean') this.inMemoryState.calculateWithPerformancePoints = data.calculateWithPerformancePoints;
       if (data.commentSettings) this.inMemoryState.commentSettings = data.commentSettings;
       if (Array.isArray(data.activeValuationCompIds)) this.inMemoryState.activeValuationCompIds = data.activeValuationCompIds;
       if (data.activeValuationCompId) this.inMemoryState.activeValuationCompId = data.activeValuationCompId;
@@ -592,6 +595,7 @@ class FestStore {
         participantIdConfig: data.participantIdConfig,
         posterTemplateConfig: data.posterTemplateConfig,
         performancePointConfig: data.performancePointConfig,
+        calculateWithPerformancePoints: data.calculateWithPerformancePoints,
         showGroupPointStatus: data.showGroupPointStatus,
         commentSettings: data.commentSettings,
         activeValuationCompIds: data.activeValuationCompIds,
@@ -663,7 +667,7 @@ class FestStore {
           'categories', 'stages', 'levels', 'festivalDays',
           'brandingConfig', 'countdownConfig', 'socialLinks',
           'limitRules', 'participantIdConfig', 'posterTemplateConfig',
-          'performancePointConfig', 'showGroupPointStatus',
+          'performancePointConfig', 'showGroupPointStatus', 'calculateWithPerformancePoints',
           'commentSettings', 'activeValuationCompIds', 'activeValuationCompId'
         ];
 
@@ -684,6 +688,7 @@ class FestStore {
             participantIdConfig: current.participantIdConfig,
             posterTemplateConfig: current.posterTemplateConfig,
             performancePointConfig: current.performancePointConfig,
+            calculateWithPerformancePoints: current.calculateWithPerformancePoints,
             showGroupPointStatus: current.showGroupPointStatus,
             commentSettings: current.commentSettings,
             activeValuationCompIds: current.activeValuationCompIds,
@@ -1206,6 +1211,20 @@ class FestStore {
     const data = this.getData();
     data.showGroupPointStatus = show;
     this.saveData(data);
+    this.notify();
+  }
+
+  // --- TEAM POINTS CALCULATION MODE (WITH vs WITHOUT PERFORMANCE POINTS) ---
+  public getCalculateWithPerformancePoints(): boolean {
+    const data = this.getData();
+    return data.calculateWithPerformancePoints !== false;
+  }
+
+  public setCalculateWithPerformancePoints(enabled: boolean): void {
+    const data = this.getData();
+    data.calculateWithPerformancePoints = enabled;
+    this.saveData(data, true);
+    this.recalculateGroupPoints(true);
     this.notify();
   }
 
@@ -2824,12 +2843,28 @@ class FestStore {
     }
   }
 
-  // Update candidate valuation marks
-  public updateRegistrationMark(registrationId: string, mark: string): void {
+  // Update candidate valuation marks and optional judge rank
+  public updateRegistrationMark(registrationId: string, mark: string, judgeRank?: number): void {
     const data = this.getData();
     const reg = data.registrations.find(r => r.id === registrationId);
     if (reg) {
       reg.mark = mark.trim();
+      if (judgeRank !== undefined) {
+        reg.judgeRank = judgeRank > 0 ? judgeRank : undefined;
+      }
+      this.saveData(data, true);
+      if (isSupabaseConfigured) {
+        this.mutateCloudDoc('registrations', registrationId, reg).catch(() => {});
+      }
+    }
+  }
+
+  // Update candidate judge rank position (1st, 2nd, 3rd)
+  public updateRegistrationJudgeRank(registrationId: string, judgeRank?: number): void {
+    const data = this.getData();
+    const reg = data.registrations.find(r => r.id === registrationId);
+    if (reg) {
+      reg.judgeRank = judgeRank && judgeRank > 0 ? judgeRank : undefined;
       this.saveData(data, true);
       if (isSupabaseConfigured) {
         this.mutateCloudDoc('registrations', registrationId, reg).catch(() => {});
@@ -3051,6 +3086,7 @@ class FestStore {
   // Recalculate live total points and medal tallies for all groups
   public recalculateGroupPoints(save = true): LeaderboardEntry[] {
     const data = this.getData();
+    const usePerformancePointsGlobally = data.calculateWithPerformancePoints !== false;
     
     // Reset points
     const groupScores: Record<string, { totalPoints: number; golds: number; silvers: number; bronzes: number }> = {};
@@ -3073,8 +3109,8 @@ class FestStore {
       const p2 = comp?.points2nd || 7;
       const p3 = comp?.points3rd || 5;
 
-      if (res.useDetailedPoints && res.participantPointsMap) {
-        // Detailed Team Point Calculation mode
+      if (usePerformancePointsGlobally && res.useDetailedPoints && res.participantPointsMap) {
+        // Detailed Team Point Calculation mode (including performance grade points)
         Object.keys(res.participantPointsMap).forEach(regId => {
           const breakdown = res.participantPointsMap![regId];
           const reg = data.registrations.find(r => r.id === regId);
@@ -3095,7 +3131,7 @@ class FestStore {
           groupScores[res.thirdPlaceGroupId].bronzes += 1;
         }
       } else {
-        // Standard Winner points only mode
+        // Competition Winner Points Only mode (1st, 2nd, 3rd points only, without performance points)
         if (res.firstPlaceGroupId && groupScores[res.firstPlaceGroupId]) {
           groupScores[res.firstPlaceGroupId].totalPoints += p1;
           groupScores[res.firstPlaceGroupId].golds += 1;
@@ -3439,7 +3475,8 @@ class FestStore {
         },
         comments: Array.isArray(parsed.comments) ? parsed.comments : [],
         notifications: Array.isArray(parsed.notifications) ? parsed.notifications : INITIAL_NOTIFICATIONS,
-        showGroupPointStatus: parsed.showGroupPointStatus !== undefined ? !!parsed.showGroupPointStatus : true
+        showGroupPointStatus: parsed.showGroupPointStatus !== undefined ? !!parsed.showGroupPointStatus : true,
+        calculateWithPerformancePoints: parsed.calculateWithPerformancePoints !== undefined ? !!parsed.calculateWithPerformancePoints : true
       };
 
       this.saveData(importedData);

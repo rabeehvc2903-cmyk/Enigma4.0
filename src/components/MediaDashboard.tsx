@@ -258,11 +258,14 @@ export const MediaDashboard: React.FC<MediaDashboardProps> = ({
     const compRegs = registrations.filter(r => r.competitionId === comp.id && r.isReported && r.mark);
     if (compRegs.length === 0) return;
 
-    // Sort descending by mark (parsed as number if possible)
+    // Sort descending by mark (parsed as number if possible), breaking ties with judgeRank
     const sorted = [...compRegs].sort((a, b) => {
       const markA = parseFloat(String(a.mark).replace(/[^0-9.]/g, '')) || 0;
       const markB = parseFloat(String(b.mark).replace(/[^0-9.]/g, '')) || 0;
-      return markB - markA;
+      if (markB !== markA) return markB - markA;
+      const rankA = a.judgeRank || 999;
+      const rankB = b.judgeRank || 999;
+      return rankA - rankB;
     });
 
     const w1 = sorted[0];

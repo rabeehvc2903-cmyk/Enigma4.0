@@ -1,8 +1,7 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { UserProfile, Competition, Registration, Result, Group } from '../types';
-import { User, Calendar, MapPin, Clock, Trophy, Award, Sparkles, CheckCircle2, Camera, CheckCircle } from 'lucide-react';
+import { Calendar, MapPin, Clock, Trophy, CheckCircle } from 'lucide-react';
 import { formatStageName, formatCompetitionName } from '../lib/store';
-import { ProfilePhotoModal } from './ProfilePhotoModal';
 import { getParticipantPhoto } from '../lib/avatarUtils';
 
 interface ParticipantDashboardProps {
@@ -20,9 +19,7 @@ export const ParticipantDashboard: React.FC<ParticipantDashboardProps> = ({
   registrations,
   results,
   groups,
-  onUserUpdated
 }) => {
-  const [isPhotoModalOpen, setIsPhotoModalOpen] = useState(false);
   const myGroup = groups.find(g => g.id === currentUser.groupId);
 
   const fullName = currentUser.fatherName ? `${currentUser.name} ${currentUser.fatherName}` : currentUser.name;
@@ -74,29 +71,15 @@ export const ParticipantDashboard: React.FC<ParticipantDashboardProps> = ({
 
         <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6 sm:gap-8 relative z-10 text-center sm:text-left">
           
-          {/* Participant Profile Photo with Hover Edit Overlay */}
-          <div className="relative group cursor-pointer shrink-0" onClick={() => setIsPhotoModalOpen(true)}>
-            <div className="relative w-24 h-24 sm:w-28 sm:h-28 rounded-2xl overflow-hidden border-2 border-purple-500/40 shadow-xl transition-all duration-300 group-hover:scale-105 group-hover:border-purple-400">
+          {/* Participant Profile Photo */}
+          <div className="relative shrink-0">
+            <div className="relative w-24 h-24 sm:w-28 sm:h-28 rounded-2xl overflow-hidden border-2 border-purple-500/40 shadow-xl">
               <img 
                 src={photoSrc} 
                 alt={fullName} 
                 className="w-full h-full object-cover"
               />
-              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-center justify-center">
-                <Camera className="w-6 h-6 text-white" />
-              </div>
             </div>
-            <button 
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setIsPhotoModalOpen(true);
-              }}
-              className="absolute -bottom-1 -right-1 p-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white shadow-lg border border-purple-400 transition-all group-hover:scale-110 flex items-center justify-center cursor-pointer"
-              title="Change Profile Photo"
-            >
-              <Camera className="w-3.5 h-3.5" />
-            </button>
           </div>
 
           <div className="flex-1 space-y-3">
@@ -127,14 +110,6 @@ export const ParticipantDashboard: React.FC<ParticipantDashboardProps> = ({
                 <span>Level {currentUser.department}</span>
                 <span className="text-slate-600">•</span>
                 <span>{currentUser.category || 'Senior'} Category</span>
-                <span className="text-slate-600">•</span>
-                <button
-                  type="button"
-                  onClick={() => setIsPhotoModalOpen(true)}
-                  className="text-purple-400 hover:text-purple-300 font-semibold hover:underline cursor-pointer transition-colors"
-                >
-                  Change Photo
-                </button>
               </div>
             </div>
           </div>
@@ -302,18 +277,6 @@ export const ParticipantDashboard: React.FC<ParticipantDashboardProps> = ({
           </div>
         </div>
       )}
-
-      {/* Profile Photo Editor Modal */}
-      <ProfilePhotoModal
-        isOpen={isPhotoModalOpen}
-        onClose={() => setIsPhotoModalOpen(false)}
-        currentUser={currentUser}
-        onPhotoUpdated={(updatedUser) => {
-          if (onUserUpdated) {
-            onUserUpdated(updatedUser);
-          }
-        }}
-      />
 
     </div>
   );

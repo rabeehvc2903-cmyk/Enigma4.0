@@ -702,9 +702,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [showGroupPointStatus, setShowGroupPointStatus] = useState<boolean>(() => festStore.getShowGroupPointStatus());
   const [groupPointStatusMsg, setGroupPointStatusMsg] = useState<string>('');
 
+  // --- TEAM POINTS CALCULATION MODE STATE ---
+  const [calculateWithPerformancePoints, setCalculateWithPerformancePoints] = useState<boolean>(() => festStore.getCalculateWithPerformancePoints());
+  const [calcModeMsg, setCalcModeMsg] = useState<string>('');
+
   useEffect(() => {
     const unsubscribe = festStore.subscribe(() => {
       setShowGroupPointStatus(festStore.getShowGroupPointStatus());
+      setCalculateWithPerformancePoints(festStore.getCalculateWithPerformancePoints());
     });
     return unsubscribe;
   }, []);
@@ -720,6 +725,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         : 'Group Point Status is now HIDDEN from the home screen!'
     );
     setTimeout(() => setGroupPointStatusMsg(''), 4000);
+    onRefresh();
+  };
+
+  const handleToggleCalculatePerformancePoints = (enabled: boolean) => {
+    festStore.setCalculateWithPerformancePoints(enabled);
+    setCalculateWithPerformancePoints(enabled);
+    setCalcModeMsg(
+      enabled
+        ? 'Team Point calculation mode set to: With Performance Points (Competition Points + Performance Grade Points)'
+        : 'Team Point calculation mode set to: Without Performance Points (Only 1st, 2nd, 3rd Competition Points)'
+    );
+    setTimeout(() => setCalcModeMsg(''), 4000);
     onRefresh();
   };
 
@@ -787,8 +804,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         const compRegs = registrations.filter(r => r.competitionId === selectedCompId);
         const reportedRegs = compRegs.filter(r => r.isReported === true);
         const sortedScored = [...reportedRegs]
-          .map(r => ({ r, score: Number(r.mark) || 0 }))
-          .sort((a, b) => b.score - a.score);
+          .map(r => ({ r, score: Number(r.mark) || 0, rank: r.judgeRank || 999 }))
+          .sort((a, b) => {
+            if (b.score !== a.score) return b.score - a.score;
+            return a.rank - b.rank;
+          });
         
         setFirstPlaceRegId(sortedScored[0]?.r.id || '');
         setSecondPlaceRegId(sortedScored[1]?.r.id || '');
@@ -1455,8 +1475,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       const reportedRegs = compRegs.filter(r => r.isReported === true);
       const scoredRegs = reportedRegs
         .filter(r => r.mark !== undefined && r.mark !== null && String(r.mark).trim() !== '')
-        .map(r => ({ ...r, numMark: Number(r.mark) || 0 }))
-        .sort((a, b) => b.numMark - a.numMark);
+        .map(r => ({ ...r, numMark: Number(r.mark) || 0, rank: r.judgeRank || 999 }))
+        .sort((a, b) => {
+          if (b.numMark !== a.numMark) return b.numMark - a.numMark;
+          return a.rank - b.rank;
+        });
 
       if (scoredRegs.length === 0) {
         setResultErrorMsg(`Cannot publish "${comp.name}": No judge scores recorded yet.`);
@@ -1760,6 +1783,56 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </div>
           </div>
 
+          {/* Point Calculation Mode Toggle on Top of Result Publish */}
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-[#121422] p-4 rounded-2xl border border-purple-500/30 shadow-inner">
+            <div className="space-y-0.5">
+              <div className="text-xs font-bold text-white flex items-center gap-1.5">
+                <SlidersHorizontal className="w-4 h-4 text-purple-400" />
+                <span>Team Point Calculation Mode:</span>
+              </div>
+              <p className="text-[11px] text-slate-400">
+                {calculateWithPerformancePoints
+                  ? 'Active: Team points include Performance Grade Points (A+, A, B, C) + Winner Points (1st, 2nd, 3rd).'
+                  : 'Active: Team points calculate ONLY Competition Winner Points (1st, 2nd, 3rd), without performance points.'}
+              </p>
+            </div>
+            <div className="flex items-center gap-1.5 bg-[#181b30] p-1 rounded-xl border border-[#292d4a] self-start lg:self-auto shrink-0">
+              <button
+                type="button"
+                onClick={() => handleToggleCalculatePerformancePoints(true)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                  calculateWithPerformancePoints
+                    ? 'bg-purple-600 text-white shadow-md shadow-purple-600/30'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+                title="Calculate team point with performance point"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>With Performance Point</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleToggleCalculatePerformancePoints(false)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                  !calculateWithPerformancePoints
+                    ? 'bg-amber-600 text-white shadow-md shadow-amber-600/30'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+                title="Without performance point - Competition points 1st, 2nd, 3rd only"
+              >
+                <Trophy className="w-3.5 h-3.5" />
+                <span>Without Performance Point (1st, 2nd, 3rd Only)</span>
+              </button>
+            </div>
+          </div>
+
+          {calcModeMsg && (
+            <div className="p-3 bg-purple-500/10 border border-purple-500/40 text-purple-300 font-semibold text-xs rounded-2xl flex items-center gap-2 animate-fadeIn">
+              <CheckCircle2 className="w-4 h-4 shrink-0 text-purple-400" />
+              <span>{calcModeMsg}</span>
+            </div>
+          )}
+
           {groupPointStatusMsg && (
             <div className="p-3 bg-purple-500/10 border border-purple-500/40 text-purple-300 font-semibold text-xs rounded-2xl flex items-center gap-2">
               <CheckCircle2 className="w-4 h-4 shrink-0 text-purple-400" />
@@ -1941,9 +2014,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <div className="space-y-6">
 
                       <div className="space-y-2">
-                        <label className="block text-[10px] font-extrabold uppercase tracking-wider text-slate-400">
-                          🏆 Calculated Winners (Determined automatically by highest judge marks)
-                        </label>
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                          <label className="block text-[10px] font-extrabold uppercase tracking-wider text-slate-400">
+                            🏆 Calculated Winners & Tie-Breaker
+                          </label>
+                          <span className="text-[11px] text-slate-400">
+                            Select or verify winners. If judge marks are tied, judge rank choices or manual selections are honored.
+                          </span>
+                        </div>
+
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                           
                           {/* 1st Place */}
@@ -1951,25 +2030,36 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             <div className="absolute top-0 right-0 w-16 h-16 bg-amber-500/10 rounded-bl-full flex items-center justify-center font-extrabold text-amber-400/20 text-3xl">
                               1
                             </div>
-                            <div>
-                              <span className="inline-flex items-center gap-1 text-[9px] bg-amber-500/10 text-amber-400 font-extrabold px-2.5 py-1 rounded-full uppercase tracking-wider border border-amber-500/20">
-                                🥇 1st Place (+{selectedCompetition?.points1st || 10} Pts)
-                              </span>
-                              <div className="mt-3">
-                                {firstWinner ? (
-                                  <>
-                                    <div className="text-white font-black text-sm tracking-wide truncate">
-                                      {firstWinner.codeLetter ? `[Code ${firstWinner.codeLetter}] ` : ''}{festStore.getParticipantFullName(firstWinner.participantName, firstWinner.id)}
-                                    </div>
-                                    <div className="text-[11px] text-slate-400 truncate mt-0.5 font-bold">
-                                      {firstWinner.groupName}
-                                    </div>
-                                  </>
-                                ) : (
-                                  <div className="text-slate-500 text-xs italic py-1">No participant scored</div>
+                            <div className="space-y-2">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="inline-flex items-center gap-1 text-[9px] bg-amber-500/10 text-amber-400 font-extrabold px-2.5 py-1 rounded-full uppercase tracking-wider border border-amber-500/20">
+                                  🥇 1st Place (+{selectedCompetition?.points1st || 10} Pts)
+                                </span>
+                                {firstWinner?.judgeRank === 1 && (
+                                  <span className="text-[9px] font-bold text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 rounded-md">
+                                    ⚖️ Judge Pick: 1st
+                                  </span>
                                 )}
                               </div>
+
+                              <div>
+                                <select
+                                  value={firstPlaceRegId}
+                                  onChange={(e) => setFirstPlaceRegId(e.target.value)}
+                                  className="w-full bg-[#121424] border border-amber-500/40 focus:border-amber-400 rounded-xl px-2.5 py-1.5 text-xs text-white font-bold focus:outline-none transition-all"
+                                >
+                                  <option value="">-- Select 1st Place Winner --</option>
+                                  {reportedCompRegistrations
+                                    .filter(r => r.mark !== undefined && r.mark !== null && String(r.mark).trim() !== '')
+                                    .map((reg) => (
+                                      <option key={reg.id} value={reg.id}>
+                                        {reg.codeLetter ? `[Code ${reg.codeLetter}] ` : ''}{reg.participantName} ({reg.groupName}) - Mark: {reg.mark}{reg.judgeRank ? ` (Judge Pick: ${reg.judgeRank === 1 ? '1st' : reg.judgeRank === 2 ? '2nd' : '3rd'})` : ''}
+                                      </option>
+                                    ))}
+                                </select>
+                              </div>
                             </div>
+
                             <div className="pt-2 border-t border-[#292d4a]/40 flex items-center justify-between">
                               <span className="text-[10px] text-slate-400 font-bold uppercase">Judge Score</span>
                               <span className="text-xs font-mono font-extrabold text-amber-400">
@@ -1983,25 +2073,36 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             <div className="absolute top-0 right-0 w-16 h-16 bg-slate-400/5 rounded-bl-full flex items-center justify-center font-extrabold text-slate-400/15 text-3xl">
                               2
                             </div>
-                            <div>
-                              <span className="inline-flex items-center gap-1 text-[9px] bg-slate-400/10 text-slate-300 font-extrabold px-2.5 py-1 rounded-full uppercase tracking-wider border border-slate-400/20">
-                                🥈 2nd Place (+{selectedCompetition?.points2nd || 7} Pts)
-                              </span>
-                              <div className="mt-3">
-                                {secondWinner ? (
-                                  <>
-                                    <div className="text-white font-black text-sm tracking-wide truncate">
-                                      {secondWinner.codeLetter ? `[Code ${secondWinner.codeLetter}] ` : ''}{festStore.getParticipantFullName(secondWinner.participantName, secondWinner.id)}
-                                    </div>
-                                    <div className="text-[11px] text-slate-400 truncate mt-0.5 font-bold">
-                                      {secondWinner.groupName}
-                                    </div>
-                                  </>
-                                ) : (
-                                  <div className="text-slate-500 text-xs italic py-1">No participant scored</div>
+                            <div className="space-y-2">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="inline-flex items-center gap-1 text-[9px] bg-slate-400/10 text-slate-300 font-extrabold px-2.5 py-1 rounded-full uppercase tracking-wider border border-slate-400/20">
+                                  🥈 2nd Place (+{selectedCompetition?.points2nd || 7} Pts)
+                                </span>
+                                {secondWinner?.judgeRank === 2 && (
+                                  <span className="text-[9px] font-bold text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 rounded-md">
+                                    ⚖️ Judge Pick: 2nd
+                                  </span>
                                 )}
                               </div>
+
+                              <div>
+                                <select
+                                  value={secondPlaceRegId}
+                                  onChange={(e) => setSecondPlaceRegId(e.target.value)}
+                                  className="w-full bg-[#121424] border border-slate-400/30 focus:border-slate-300 rounded-xl px-2.5 py-1.5 text-xs text-white font-bold focus:outline-none transition-all"
+                                >
+                                  <option value="">-- Select 2nd Place Winner --</option>
+                                  {reportedCompRegistrations
+                                    .filter(r => r.mark !== undefined && r.mark !== null && String(r.mark).trim() !== '')
+                                    .map((reg) => (
+                                      <option key={reg.id} value={reg.id}>
+                                        {reg.codeLetter ? `[Code ${reg.codeLetter}] ` : ''}{reg.participantName} ({reg.groupName}) - Mark: {reg.mark}{reg.judgeRank ? ` (Judge Pick: ${reg.judgeRank === 1 ? '1st' : reg.judgeRank === 2 ? '2nd' : '3rd'})` : ''}
+                                      </option>
+                                    ))}
+                                </select>
+                              </div>
                             </div>
+
                             <div className="pt-2 border-t border-[#292d4a]/40 flex items-center justify-between">
                               <span className="text-[10px] text-slate-400 font-bold uppercase">Judge Score</span>
                               <span className="text-xs font-mono font-extrabold text-slate-300">
@@ -2015,25 +2116,36 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             <div className="absolute top-0 right-0 w-16 h-16 bg-amber-700/5 rounded-bl-full flex items-center justify-center font-extrabold text-amber-700/15 text-3xl">
                               3
                             </div>
-                            <div>
-                              <span className="inline-flex items-center gap-1 text-[9px] bg-amber-700/10 text-amber-600 font-extrabold px-2.5 py-1 rounded-full uppercase tracking-wider border border-amber-700/25">
-                                🥉 3rd Place (+{selectedCompetition?.points3rd || 5} Pts)
-                              </span>
-                              <div className="mt-3">
-                                {thirdWinner ? (
-                                  <>
-                                    <div className="text-white font-black text-sm tracking-wide truncate">
-                                      {thirdWinner.codeLetter ? `[Code ${thirdWinner.codeLetter}] ` : ''}{festStore.getParticipantFullName(thirdWinner.participantName, thirdWinner.id)}
-                                    </div>
-                                    <div className="text-[11px] text-slate-400 truncate mt-0.5 font-bold">
-                                      {thirdWinner.groupName}
-                                    </div>
-                                  </>
-                                ) : (
-                                  <div className="text-slate-500 text-xs italic py-1">No participant scored</div>
+                            <div className="space-y-2">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="inline-flex items-center gap-1 text-[9px] bg-amber-700/10 text-amber-600 font-extrabold px-2.5 py-1 rounded-full uppercase tracking-wider border border-amber-700/25">
+                                  🥉 3rd Place (+{selectedCompetition?.points3rd || 5} Pts)
+                                </span>
+                                {thirdWinner?.judgeRank === 3 && (
+                                  <span className="text-[9px] font-bold text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 rounded-md">
+                                    ⚖️ Judge Pick: 3rd
+                                  </span>
                                 )}
                               </div>
+
+                              <div>
+                                <select
+                                  value={thirdPlaceRegId}
+                                  onChange={(e) => setThirdPlaceRegId(e.target.value)}
+                                  className="w-full bg-[#121424] border border-amber-700/30 focus:border-amber-600 rounded-xl px-2.5 py-1.5 text-xs text-white font-bold focus:outline-none transition-all"
+                                >
+                                  <option value="">-- Select 3rd Place Winner --</option>
+                                  {reportedCompRegistrations
+                                    .filter(r => r.mark !== undefined && r.mark !== null && String(r.mark).trim() !== '')
+                                    .map((reg) => (
+                                      <option key={reg.id} value={reg.id}>
+                                        {reg.codeLetter ? `[Code ${reg.codeLetter}] ` : ''}{reg.participantName} ({reg.groupName}) - Mark: {reg.mark}{reg.judgeRank ? ` (Judge Pick: ${reg.judgeRank === 1 ? '1st' : reg.judgeRank === 2 ? '2nd' : '3rd'})` : ''}
+                                      </option>
+                                    ))}
+                                </select>
+                              </div>
                             </div>
+
                             <div className="pt-2 border-t border-[#292d4a]/40 flex items-center justify-between">
                               <span className="text-[10px] text-slate-400 font-bold uppercase">Judge Score</span>
                               <span className="text-xs font-mono font-extrabold text-amber-600">
@@ -2047,9 +2159,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
                       {/* Participant Point Calculation Live Preview Table */}
                       <div className="space-y-3 pt-2">
-                          <div className="text-xs font-bold text-purple-400 uppercase tracking-wide flex items-center gap-1.5">
-                            <Sparkles className="w-4 h-4 text-purple-400" />
-                            <span>Participant Point Calculation Live Preview</span>
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                            <div className="text-xs font-bold text-purple-400 uppercase tracking-wide flex items-center gap-1.5">
+                              <Sparkles className="w-4 h-4 text-purple-400" />
+                              <span>Participant Point Calculation Live Preview</span>
+                            </div>
+                            <span className="text-[11px] font-semibold text-slate-400">
+                              Mode: {calculateWithPerformancePoints ? '✨ With Performance Points' : '🏆 Competition Points Only (1st, 2nd, 3rd)'}
+                            </span>
                           </div>
                           
                           <div className="overflow-x-auto rounded-2xl border border-[#292d4a] bg-[#151728]">
@@ -2060,7 +2177,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                   <th className="py-2.5 px-3 text-center">Judge Score</th>
                                   <th className="py-2.5 px-3 text-center">Grade</th>
                                   <th className="py-2.5 px-3 text-center">Comp Pts</th>
-                                  <th className="py-2.5 px-3 text-center">Perf Pts</th>
+                                  <th className="py-2.5 px-3 text-center">
+                                    {calculateWithPerformancePoints ? 'Perf Pts' : 'Perf Pts (Disabled)'}
+                                  </th>
                                   <th className="py-2.5 px-3 text-right">Team Contribution</th>
                                 </tr>
                               </thead>
@@ -2068,12 +2187,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                 {[...reportedCompRegistrations]
                                   .map(reg => {
                                     const score = Number(reg.mark) || 0;
-                                    const { grade, points: performancePoints } = calculatePerformancePoints(
+                                    const { grade, points: rawPerformancePoints } = calculatePerformancePoints(
                                       score,
                                       selectedCompetition?.type || 'Individual',
                                       selectedCompetition?.teamSize || 4
                                     );
                                     
+                                    const performancePoints = calculateWithPerformancePoints ? rawPerformancePoints : 0;
+
                                     let competitionPoints = 0;
                                     let rankBadge = '';
 
@@ -2094,6 +2215,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                       reg,
                                       score,
                                       grade,
+                                      rawPerformancePoints,
                                       performancePoints,
                                       competitionPoints,
                                       totalPoints: competitionPoints + performancePoints,
@@ -2137,7 +2259,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                           +{item.competitionPoints}
                                         </td>
                                         <td className="py-2.5 px-3 text-center font-mono font-bold text-purple-400">
-                                          +{item.performancePoints}
+                                          {calculateWithPerformancePoints ? `+${item.rawPerformancePoints}` : <span className="text-slate-500 text-[10px]">0 (Disabled)</span>}
                                         </td>
                                         <td className="py-2.5 px-3 text-right font-mono font-extrabold text-emerald-400">
                                           {item.totalPoints} pts

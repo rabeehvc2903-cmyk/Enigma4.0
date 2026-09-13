@@ -79,6 +79,7 @@ export interface Registration {
   isReported?: boolean; // Defaults to false if unspecified
   codeLetter?: string;  // e.g. "A", "B", "C", "D"...
   mark?: string;        // Assigned marks/scores
+  judgeRank?: number;   // 1 = 1st, 2 = 2nd, 3 = 3rd (chosen by judge, especially on tie marks)
 }
 
 export interface Result {

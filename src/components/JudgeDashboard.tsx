@@ -40,6 +40,7 @@ export const JudgeDashboard: React.FC<JudgeDashboardProps> = ({
   const [judgeStageFilter, setJudgeStageFilter] = useState<string>('All');
   const [callsheetStageFilter, setCallsheetStageFilter] = useState<string>('All');
   const [marksState, setMarksState] = useState<{ [regId: string]: string }>({});
+  const [judgeRanksState, setJudgeRanksState] = useState<{ [regId: string]: number | undefined }>({});
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string>('');
 
   // Subscribe to real-time store changes (so when Admin assigns/changes competitions, it updates live on Judge desk)
@@ -114,12 +115,47 @@ export const JudgeDashboard: React.FC<JudgeDashboardProps> = ({
     return Object.keys(allCompsByStage);
   }, [allCompsByStage]);
 
+  // Compute tie marks across reported candidates
+  const markCounts = useMemo(() => {
+    const counts: { [m: string]: number } = {};
+    reportedCandidates.forEach(r => {
+      const val = (marksState[r.id] !== undefined ? marksState[r.id] : r.mark || '').trim();
+      if (val) {
+        counts[val] = (counts[val] || 0) + 1;
+      }
+    });
+    return counts;
+  }, [reportedCandidates, marksState]);
+
+  const hasAnyTies = useMemo(() => {
+    return Object.values(markCounts).some((count: number) => count > 1);
+  }, [markCounts]);
+
   // Handle Mark Change
   const handleMarkChange = (regId: string, value: string) => {
     setMarksState(prev => ({
       ...prev,
       [regId]: value
     }));
+  };
+
+  // Handle Judge Rank Selection (1st, 2nd, 3rd place tie breaker)
+  const handleRankSelect = (regId: string, rank: number | undefined) => {
+    setJudgeRanksState(prev => {
+      const updated = { ...prev };
+      if (rank === undefined || rank === 0) {
+        delete updated[regId];
+        return updated;
+      }
+      // If another participant already had this rank in this competition, clear them to avoid duplicate rank assignment
+      Object.keys(updated).forEach(k => {
+        if (updated[k] === rank && k !== regId) {
+          delete updated[k];
+        }
+      });
+      updated[regId] = rank;
+      return updated;
+    });
   };
 
   // Save all marks for selected competition
@@ -129,7 +165,8 @@ export const JudgeDashboard: React.FC<JudgeDashboardProps> = ({
     let updatedCount = 0;
     reportedCandidates.forEach(r => {
       const currentVal = marksState[r.id] !== undefined ? marksState[r.id] : r.mark || '';
-      festStore.updateRegistrationMark(r.id, currentVal);
+      const currentRank = judgeRanksState[r.id] !== undefined ? judgeRanksState[r.id] : r.judgeRank;
+      festStore.updateRegistrationMark(r.id, currentVal, currentRank);
       updatedCount++;
     });
 
@@ -263,6 +300,16 @@ export const JudgeDashboard: React.FC<JudgeDashboardProps> = ({
                 </div>
               )}
 
+              {/* Tie Warning Banner if two or more candidates have the same mark */}
+              {hasAnyTies && (
+                <div className="p-3.5 bg-indigo-500/10 border border-indigo-500/30 rounded-2xl text-xs text-indigo-300 font-semibold flex items-center gap-2.5 shadow-md animate-fadeIn">
+                  <span className="text-base shrink-0">⚖️</span>
+                  <span>
+                    <strong>Tie Detected:</strong> Two or more participants have the same mark. Use the <strong>Rank / Tie-Break (🥇 1st, 🥈 2nd, 🥉 3rd)</strong> buttons below to choose the top positions.
+                  </span>
+                </div>
+              )}
+
               {/* Reported Candidates Table */}
               {reportedCandidates.length === 0 ? (
                 <div className="text-center py-12 px-4 rounded-3xl bg-[#181b30] border border-dashed border-[#292d4a] space-y-3">
@@ -279,18 +326,22 @@ export const JudgeDashboard: React.FC<JudgeDashboardProps> = ({
                   <table className="w-full text-left text-xs">
                     <thead className="bg-[#181b30] text-slate-400 font-bold uppercase text-[10px] tracking-wider border-b border-[#292d4a]">
                       <tr>
-                        <th className="py-3.5 px-4 text-center w-16">Sl No</th>
-                        <th className="py-3.5 px-4 text-center w-28">Code Letter</th>
+                        <th className="py-3.5 px-4 text-center w-14">Sl No</th>
+                        <th className="py-3.5 px-4 text-center w-24">Code Letter</th>
                         <th className="py-3.5 px-4">Evaluation / Performance</th>
-                        <th className="py-3.5 px-4 w-44 text-right">Marks / Score</th>
+                        <th className="py-3.5 px-4 w-36 text-center">Marks / Score</th>
+                        <th className="py-3.5 px-4 w-52 text-center">Rank / Tie-Break</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-[#292d4a] bg-[#121424]">
                       {reportedCandidates.map((reg, idx) => {
                         const currentMark = marksState[reg.id] !== undefined ? marksState[reg.id] : reg.mark || '';
+                        const currentRank = judgeRanksState[reg.id] !== undefined ? judgeRanksState[reg.id] : reg.judgeRank;
                         const hasCode = !!reg.codeLetter;
+                        const isTied = currentMark.trim() !== '' && (markCounts[currentMark.trim()] || 0) > 1;
+
                         return (
-                          <tr key={reg.id} className="hover:bg-[#181b30]/50 transition-colors">
+                          <tr key={reg.id} className={`hover:bg-[#181b30]/50 transition-colors ${isTied ? 'bg-indigo-950/20' : ''}`}>
                             <td className="py-3.5 px-4 text-center font-mono text-slate-400 font-bold">
                               {idx + 1}
                             </td>
@@ -319,15 +370,70 @@ export const JudgeDashboard: React.FC<JudgeDashboardProps> = ({
                                 <span>Reported On Stage ({getCompStage(selectedComp)})</span>
                               </div>
                             </td>
-                            <td className="py-3.5 px-4 text-right">
-                              <div className="inline-flex items-center gap-2">
+                            <td className="py-3.5 px-4 text-center">
+                              <div className="inline-flex flex-col items-center gap-1">
                                 <input
                                   type="text"
                                   placeholder="e.g. 85 / A+"
                                   value={currentMark}
                                   onChange={(e) => handleMarkChange(reg.id, e.target.value)}
-                                  className="w-32 bg-[#181b30] border border-[#292d4a] focus:border-emerald-500 rounded-xl px-3 py-2 text-xs text-white font-bold text-center focus:outline-none transition-all"
+                                  className={`w-28 bg-[#181b30] border ${isTied ? 'border-amber-400/80 focus:border-amber-400' : 'border-[#292d4a] focus:border-emerald-500'} rounded-xl px-3 py-2 text-xs text-white font-bold text-center focus:outline-none transition-all`}
                                 />
+                                {isTied && (
+                                  <span className="text-[9px] font-bold text-amber-400 bg-amber-500/15 border border-amber-500/30 px-1.5 py-0.5 rounded-full inline-flex items-center gap-0.5">
+                                    ⚖️ Tied Mark
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="py-3.5 px-4 text-center">
+                              <div className="inline-flex items-center gap-1 bg-[#0b0c16] p-1 rounded-xl border border-[#292d4a]">
+                                <button
+                                  type="button"
+                                  onClick={() => handleRankSelect(reg.id, 1)}
+                                  title="Choose 1st Place"
+                                  className={`px-2 py-1 rounded-lg text-xs font-black transition-all cursor-pointer ${
+                                    currentRank === 1
+                                      ? 'bg-amber-500 text-slate-950 shadow-md scale-105'
+                                      : 'text-slate-400 hover:text-amber-400 hover:bg-amber-500/10'
+                                  }`}
+                                >
+                                  🥇 1st
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRankSelect(reg.id, 2)}
+                                  title="Choose 2nd Place"
+                                  className={`px-2 py-1 rounded-lg text-xs font-black transition-all cursor-pointer ${
+                                    currentRank === 2
+                                      ? 'bg-slate-200 text-slate-950 shadow-md scale-105'
+                                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-300/10'
+                                  }`}
+                                >
+                                  🥈 2nd
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRankSelect(reg.id, 3)}
+                                  title="Choose 3rd Place"
+                                  className={`px-2 py-1 rounded-lg text-xs font-black transition-all cursor-pointer ${
+                                    currentRank === 3
+                                      ? 'bg-amber-700 text-amber-100 shadow-md scale-105'
+                                      : 'text-slate-400 hover:text-amber-500 hover:bg-amber-700/10'
+                                  }`}
+                                >
+                                  🥉 3rd
+                                </button>
+                                {currentRank !== undefined && currentRank > 0 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRankSelect(reg.id, undefined)}
+                                    title="Clear Rank"
+                                    className="px-1.5 py-1 text-[11px] text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors cursor-pointer"
+                                  >
+                                    ✕
+                                  </button>
+                                )}
                               </div>
                             </td>
                           </tr>
