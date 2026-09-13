@@ -1768,6 +1768,30 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </button>
               </div>
 
+              {/* Point Calculation Mode Toggle Button */}
+              <button
+                type="button"
+                onClick={() => handleToggleCalculatePerformancePoints(!calculateWithPerformancePoints)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-sm ${
+                  calculateWithPerformancePoints
+                    ? 'bg-purple-600 hover:bg-purple-500 text-white shadow-purple-600/30'
+                    : 'bg-amber-600 hover:bg-amber-500 text-white shadow-amber-600/30'
+                }`}
+                title="Toggle Performance Points calculation mode"
+              >
+                {calculateWithPerformancePoints ? (
+                  <>
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>With Performance Point</span>
+                  </>
+                ) : (
+                  <>
+                    <Trophy className="w-3.5 h-3.5" />
+                    <span>Without Performance Point (1st, 2nd, 3rd Only)</span>
+                  </>
+                )}
+              </button>
+
               <button
                 type="button"
                 onClick={() => {
@@ -1779,49 +1803,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               >
                 <Edit3 className="w-3.5 h-3.5 text-purple-300" />
                 <span>Edit Scale</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Point Calculation Mode Toggle on Top of Result Publish */}
-          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-[#121422] p-4 rounded-2xl border border-purple-500/30 shadow-inner">
-            <div className="space-y-0.5">
-              <div className="text-xs font-bold text-white flex items-center gap-1.5">
-                <SlidersHorizontal className="w-4 h-4 text-purple-400" />
-                <span>Team Point Calculation Mode:</span>
-              </div>
-              <p className="text-[11px] text-slate-400">
-                {calculateWithPerformancePoints
-                  ? 'Active: Team points include Performance Grade Points (A+, A, B, C) + Winner Points (1st, 2nd, 3rd).'
-                  : 'Active: Team points calculate ONLY Competition Winner Points (1st, 2nd, 3rd), without performance points.'}
-              </p>
-            </div>
-            <div className="flex items-center gap-1.5 bg-[#181b30] p-1 rounded-xl border border-[#292d4a] self-start lg:self-auto shrink-0">
-              <button
-                type="button"
-                onClick={() => handleToggleCalculatePerformancePoints(true)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
-                  calculateWithPerformancePoints
-                    ? 'bg-purple-600 text-white shadow-md shadow-purple-600/30'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-                title="Calculate team point with performance point"
-              >
-                <Sparkles className="w-3.5 h-3.5" />
-                <span>With Performance Point</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => handleToggleCalculatePerformancePoints(false)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
-                  !calculateWithPerformancePoints
-                    ? 'bg-amber-600 text-white shadow-md shadow-amber-600/30'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-                title="Without performance point - Competition points 1st, 2nd, 3rd only"
-              >
-                <Trophy className="w-3.5 h-3.5" />
-                <span>Without Performance Point (1st, 2nd, 3rd Only)</span>
               </button>
             </div>
           </div>
