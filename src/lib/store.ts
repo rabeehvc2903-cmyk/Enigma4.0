@@ -1453,6 +1453,9 @@ class FestStore {
     data.activeValuationCompId = cleanIds.length > 0 ? cleanIds[0] : '';
     this.saveData(data);
     this.notify();
+    if (isSupabaseConfigured) {
+      this.mutateCloudSettings().catch(() => {});
+    }
   }
 
   public toggleValuationCompId(compId: string): void {
