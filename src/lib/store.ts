@@ -2565,7 +2565,10 @@ class FestStore {
     return defaultRule;
   }
 
-  public getParticipantEnrollmentStats(participantId: string): {
+  public getParticipantEnrollmentStats(
+    participantId: string,
+    competitionCategory?: string
+  ): {
     stageCount: number;
     offStageCount: number;
     totalCount: number;
@@ -2575,11 +2578,17 @@ class FestStore {
     isStageLimitReached: boolean;
     isOffStageLimitReached: boolean;
     category: string;
+    categoryBreakdown?: Record<string, {
+      stageCount: number;
+      offStageCount: number;
+      totalCount: number;
+      stageLimit: number;
+      offStageLimit: number;
+      isStageLimitReached: boolean;
+      isOffStageLimitReached: boolean;
+    }>;
   } {
     const data = this.getData();
-    const part = data.profiles.find(p => p.id === participantId);
-    const category = part?.category || 'General';
-    const limitRule = this.getCategoryLimit(category);
     const partRegs = data.registrations.filter(r => r.participantId === participantId);
     const registeredComps = partRegs.map(r => data.competitions.find(c => c.id === r.competitionId)).filter(Boolean) as Competition[];
 
@@ -2587,8 +2596,53 @@ class FestStore {
     const individualComps = registeredComps.filter(c => c.type !== 'Group');
     const groupComps = registeredComps.filter(c => c.type === 'Group');
 
-    const stageCount = individualComps.filter(c => c.isStage !== undefined ? c.isStage : this.isStageVenue(c.venue)).length;
-    const offStageCount = individualComps.filter(c => !(c.isStage !== undefined ? c.isStage : this.isStageVenue(c.venue))).length;
+    // Build breakdown for all festival categories
+    const allCategories = this.getCategories();
+    const categoryBreakdown: Record<string, {
+      stageCount: number;
+      offStageCount: number;
+      totalCount: number;
+      stageLimit: number;
+      offStageLimit: number;
+      isStageLimitReached: boolean;
+      isOffStageLimitReached: boolean;
+    }> = {};
+
+    allCategories.forEach(cat => {
+      const catRule = this.getCategoryLimit(cat);
+      const catComps = individualComps.filter(
+        c => (c.category || 'General').trim().toLowerCase() === cat.trim().toLowerCase()
+      );
+      const s = catComps.filter(c => c.isStage !== undefined ? c.isStage : this.isStageVenue(c.venue)).length;
+      const o = catComps.filter(c => !(c.isStage !== undefined ? c.isStage : this.isStageVenue(c.venue))).length;
+      categoryBreakdown[cat] = {
+        stageCount: s,
+        offStageCount: o,
+        totalCount: s + o,
+        stageLimit: catRule.stage,
+        offStageLimit: catRule.offStage,
+        isStageLimitReached: s >= catRule.stage,
+        isOffStageLimitReached: o >= catRule.offStage
+      };
+    });
+
+    // Resolve target competition category (Limits work based on competition category)
+    let targetCategory = competitionCategory?.trim();
+    if (!targetCategory) {
+      if (individualComps.length > 0 && individualComps[0].category) {
+        targetCategory = individualComps[0].category.trim();
+      } else {
+        targetCategory = 'General';
+      }
+    }
+
+    const limitRule = this.getCategoryLimit(targetCategory);
+    const compCategoryIndComps = individualComps.filter(
+      c => (c.category || 'General').trim().toLowerCase() === targetCategory.toLowerCase()
+    );
+
+    const stageCount = compCategoryIndComps.filter(c => c.isStage !== undefined ? c.isStage : this.isStageVenue(c.venue)).length;
+    const offStageCount = compCategoryIndComps.filter(c => !(c.isStage !== undefined ? c.isStage : this.isStageVenue(c.venue))).length;
     const totalCount = stageCount + offStageCount;
 
     return {
@@ -2600,7 +2654,8 @@ class FestStore {
       offStageLimit: limitRule.offStage,
       isStageLimitReached: stageCount >= limitRule.stage,
       isOffStageLimitReached: offStageCount >= limitRule.offStage,
-      category
+      category: targetCategory,
+      categoryBreakdown
     };
   }
 
@@ -2639,23 +2694,25 @@ class FestStore {
       };
     }
 
-    // Check per-participant category competition limits (Stage & Off-Stage)
+    // Check per-competition category limits (Stage & Off-Stage)
+    // NOTE: Limits are strictly evaluated based on the competition category, not participant category.
     // NOTE: Group competitions do NOT count towards participant limit quotas; only Individual competitions count.
     if (comp.type !== 'Group') {
       const isStageEvent = comp.isStage !== undefined ? comp.isStage : this.isStageVenue(comp.venue);
-      const partStats = this.getParticipantEnrollmentStats(participantId);
+      const compCategory = comp.category || 'General';
+      const partStats = this.getParticipantEnrollmentStats(participantId, compCategory);
 
       if (isStageEvent && partStats.stageCount >= partStats.stageLimit) {
         return {
           success: false,
-          message: `Limit reached: ${part.name} (${partStats.category}) has already reached the maximum of ${partStats.stageLimit} Individual Stage competition(s). Group events are not limited.`
+          message: `Limit reached: ${part.name} has already reached the maximum of ${partStats.stageLimit} Individual Stage competition(s) in the "${compCategory}" category. Group events are not limited.`
         };
       }
 
       if (!isStageEvent && partStats.offStageCount >= partStats.offStageLimit) {
         return {
           success: false,
-          message: `Limit reached: ${part.name} (${partStats.category}) has already reached the maximum of ${partStats.offStageLimit} Individual Off-Stage competition(s). Group events are not limited.`
+          message: `Limit reached: ${part.name} has already reached the maximum of ${partStats.offStageLimit} Individual Off-Stage competition(s) in the "${compCategory}" category. Group events are not limited.`
         };
       }
     }
@@ -2755,19 +2812,20 @@ class FestStore {
         continue;
       }
 
-      // Check individual participant category limits
+      // Check individual participant competition category limits
       if (comp.type !== 'Group') {
         const isStageEvent = comp.isStage !== undefined ? comp.isStage : this.isStageVenue(comp.venue);
-        const partStats = this.getParticipantEnrollmentStats(partId);
+        const compCategory = comp.category || 'General';
+        const partStats = this.getParticipantEnrollmentStats(partId, compCategory);
 
         if (isStageEvent && partStats.stageCount >= partStats.stageLimit) {
-          messages.push(`${part.name}: Max Stage limit (${partStats.stageLimit}) reached`);
+          messages.push(`${part.name}: Max Stage limit (${partStats.stageLimit}) reached in "${compCategory}" category`);
           failedCount++;
           continue;
         }
 
         if (!isStageEvent && partStats.offStageCount >= partStats.offStageLimit) {
-          messages.push(`${part.name}: Max Off-Stage limit (${partStats.offStageLimit}) reached`);
+          messages.push(`${part.name}: Max Off-Stage limit (${partStats.offStageLimit}) reached in "${compCategory}" category`);
           failedCount++;
           continue;
         }

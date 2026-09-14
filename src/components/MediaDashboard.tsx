@@ -87,11 +87,9 @@ export const MediaDashboard: React.FC<MediaDashboardProps> = ({
 
   // --- RESULTS STATE ---
   const [resultSearchQuery, setResultSearchQuery] = useState('');
-  const [resultStatusFilter, setResultStatusFilter] = useState<'All' | 'Published' | 'Judge Evaluated' | 'Pending'>('All');
   const [resultCategoryFilter, setResultCategoryFilter] = useState('All');
   const [selectedPosterResult, setSelectedPosterResult] = useState<Result | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [publishSuccessMsg, setPublishSuccessMsg] = useState('');
 
   // --- JUDGE UNLOCK STATE ---
   const [isJudgeUnlocked, setIsJudgeUnlocked] = useState(false);
@@ -255,89 +253,89 @@ export const MediaDashboard: React.FC<MediaDashboardProps> = ({
     setTimeout(() => setCopiedId(null), 2000);
   };
 
-  // Quick Publish from Judge Marks
-  const handleQuickPublishJudgeMarks = (comp: Competition) => {
-    const compRegs = registrations.filter(r => r.competitionId === comp.id && r.isReported && r.mark);
-    if (compRegs.length === 0) return;
+  // Only Published Competitions & Results in Media Portal
+  const publishedCompResults = useMemo(() => {
+    const map = new Map<string, {
+      comp: Competition;
+      publishedResult: Result;
+      totalRegistered: number;
+      reportedCount: number;
+    }>();
 
-    // Sort descending by mark (parsed as number if possible), breaking ties with judgeRank
-    const sorted = [...compRegs].sort((a, b) => {
-      const markA = parseFloat(String(a.mark).replace(/[^0-9.]/g, '')) || 0;
-      const markB = parseFloat(String(b.mark).replace(/[^0-9.]/g, '')) || 0;
-      if (markB !== markA) return markB - markA;
-      const rankA = a.judgeRank || 999;
-      const rankB = b.judgeRank || 999;
-      return rankA - rankB;
-    });
+    // 1. From results list (official published results)
+    results.forEach(res => {
+      const comp = competitions.find(c => c.id === res.competitionId) || ({
+        id: res.competitionId,
+        name: res.competitionName,
+        category: 'General',
+        stage: '',
+        type: 'Single',
+        isPublishedResult: true,
+      } as unknown as Competition);
 
-    const w1 = sorted[0];
-    const w2 = sorted[1];
-    const w3 = sorted[2];
-
-    if (!w1) return;
-
-    festStore.publishResult(comp.id, w1.id, w2?.id, w3?.id);
-    setPublishSuccessMsg(`Published result successfully for "${comp.name}"!`);
-    setTimeout(() => setPublishSuccessMsg(''), 3500);
-  };
-
-  // Combined Results & Competitions (Published + Unpublished)
-  const combinedCompResults = useMemo(() => {
-    return competitions.map(comp => {
-      const publishedResult = results.find(r => r.competitionId === comp.id);
       const compRegs = registrations.filter(r => r.competitionId === comp.id);
       const reportedRegs = compRegs.filter(r => r.isReported);
-      const scoredRegs = reportedRegs.filter(r => r.mark && r.mark.trim().length > 0);
 
-      const hasJudgeMarks = scoredRegs.length > 0;
-      const isPublished = (!!publishedResult || comp.isPublishedResult) && hasJudgeMarks;
-
-      let status: 'Published' | 'Judge Evaluated' | 'Pending' = 'Pending';
-      if (isPublished) status = 'Published';
-      else if (hasJudgeMarks) status = 'Judge Evaluated';
-
-      return {
+      map.set(comp.id, {
         comp,
-        publishedResult,
+        publishedResult: res,
         totalRegistered: compRegs.length,
         reportedCount: reportedRegs.length,
-        scoredRegs,
-        hasJudgeMarks,
-        isPublished,
-        status,
-      };
+      });
     });
+
+    // 2. Also include competitions flagged with comp.isPublishedResult if they have a matching result
+    competitions.forEach(comp => {
+      if (comp.isPublishedResult && !map.has(comp.id)) {
+        const publishedResult = results.find(r => r.competitionId === comp.id);
+        if (publishedResult) {
+          const compRegs = registrations.filter(r => r.competitionId === comp.id);
+          const reportedRegs = compRegs.filter(r => r.isReported);
+
+          map.set(comp.id, {
+            comp,
+            publishedResult,
+            totalRegistered: compRegs.length,
+            reportedCount: reportedRegs.length,
+          });
+        }
+      }
+    });
+
+    return Array.from(map.values());
   }, [competitions, results, registrations]);
 
-  // Filtered and Sorted List
+  // Filtered and Sorted Published List
   const filteredCompResults = useMemo(() => {
-    const list = combinedCompResults.filter(item => {
+    const q = resultSearchQuery.toLowerCase().trim();
+    return publishedCompResults.filter(item => {
       const matchesCategory = resultCategoryFilter === 'All' || item.comp.category === resultCategoryFilter;
-      const matchesStatus = resultStatusFilter === 'All' || item.status === resultStatusFilter;
       
-      const q = resultSearchQuery.toLowerCase().trim();
+      const winners = festStore.getResultWinners(item.publishedResult);
+      const allWinnerNames = [
+        ...winners.first.map(w => festStore.getParticipantFullName(w.participantName, w.regId)),
+        ...winners.second.map(w => festStore.getParticipantFullName(w.participantName, w.regId)),
+        ...winners.third.map(w => festStore.getParticipantFullName(w.participantName, w.regId)),
+      ].join(' ').toLowerCase();
+
+      const allWinnerGroups = [
+        ...winners.first.map(w => w.groupName),
+        ...winners.second.map(w => w.groupName),
+        ...winners.third.map(w => w.groupName),
+      ].join(' ').toLowerCase();
+
       const matchesQuery = !q ||
         item.comp.name.toLowerCase().includes(q) ||
         item.comp.category.toLowerCase().includes(q) ||
         (item.comp.venue && item.comp.venue.toLowerCase().includes(q)) ||
-        (item.publishedResult?.firstPlaceParticipantName && item.publishedResult.firstPlaceParticipantName.toLowerCase().includes(q)) ||
-        (item.publishedResult?.firstPlaceGroupName && item.publishedResult.firstPlaceGroupName.toLowerCase().includes(q));
+        allWinnerNames.includes(q) ||
+        allWinnerGroups.includes(q);
 
-      return matchesCategory && matchesStatus && matchesQuery;
-    });
-
-    const statusPriority: Record<'Judge Evaluated' | 'Pending' | 'Published', number> = {
-      'Judge Evaluated': 0,
-      'Pending': 1,
-      'Published': 2,
-    };
-
-    return [...list].sort((a, b) => {
-      const rankDiff = statusPriority[a.status] - statusPriority[b.status];
-      if (rankDiff !== 0) return rankDiff;
+      return matchesCategory && matchesQuery;
+    }).sort((a, b) => {
       return (a.comp.name || '').localeCompare(b.comp.name || '');
     });
-  }, [combinedCompResults, resultCategoryFilter, resultStatusFilter, resultSearchQuery]);
+  }, [publishedCompResults, resultCategoryFilter, resultSearchQuery]);
 
   return (
     <div className="max-w-6xl mx-auto space-y-6 pb-28 animate-fadeIn">
@@ -391,7 +389,7 @@ export const MediaDashboard: React.FC<MediaDashboardProps> = ({
           }`}
         >
           <FileText className="w-4 h-4 text-amber-400" />
-          <span>Result ({combinedCompResults.length})</span>
+          <span>Result ({publishedCompResults.length})</span>
         </button>
 
         <button
@@ -641,17 +639,10 @@ export const MediaDashboard: React.FC<MediaDashboardProps> = ({
       )}
 
       {/* ======================================================== */}
-      {/* MENU 2: RESULT (PUBLISHED AND UNPUBLISHED FROM JUDGE)     */}
+      {/* MENU 2: RESULT (PUBLISHED RESULTS ONLY IN MEDIA)         */}
       {/* ======================================================== */}
       {activeTab === 'results' && (
         <div className="poster-card p-6 sm:p-8 bg-[#151728] rounded-3xl border border-[#292d4a] space-y-6 shadow-xl animate-fadeIn">
-
-          {publishSuccessMsg && (
-            <div className="p-3.5 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl text-xs text-emerald-300 font-bold flex items-center gap-2 animate-fadeIn">
-              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-              <span>{publishSuccessMsg}</span>
-            </div>
-          )}
 
           {/* Search and Category Filters */}
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-[#181b30] p-3.5 rounded-2xl border border-[#292d4a]">
@@ -661,43 +652,34 @@ export const MediaDashboard: React.FC<MediaDashboardProps> = ({
               <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
-                placeholder="Search competition, participant or group..."
+                placeholder="Search published competition, winner or group..."
                 value={resultSearchQuery}
                 onChange={(e) => setResultSearchQuery(e.target.value)}
-                className="w-full bg-[#151728] border border-[#292d4a] focus:border-cyan-500 rounded-xl pl-9 pr-8 py-2 text-xs text-white placeholder-slate-400 focus:outline-none"
+                className="w-full bg-[#151728] border border-[#292d4a] focus:border-cyan-500 rounded-xl pl-9 pr-8 py-2 text-xs text-white placeholder-slate-400 focus:outline-none font-medium"
               />
               {resultSearchQuery && (
                 <button
+                  type="button"
                   onClick={() => setResultSearchQuery('')}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white cursor-pointer"
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>
               )}
             </div>
 
-            {/* Status Filter Buttons */}
-            <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
-              {(['All', 'Judge Evaluated', 'Pending', 'Published'] as const).map(st => (
-                <button
-                  key={st}
-                  type="button"
-                  onClick={() => setResultStatusFilter(st)}
-                  className={`px-3 py-1.5 text-xs font-bold rounded-xl transition-all border cursor-pointer ${
-                    resultStatusFilter === st
-                      ? st === 'Published'
-                        ? 'bg-emerald-600 border-emerald-500 text-white shadow-md'
-                        : st === 'Judge Evaluated'
-                        ? 'bg-amber-600 border-amber-500 text-white shadow-md'
-                        : 'bg-cyan-600 border-cyan-500 text-white shadow-md'
-                      : 'bg-[#151728] border-[#292d4a] text-slate-400 hover:text-white'
-                  }`}
-                >
-                  {st === 'Judge Evaluated' && '⚖️ '}
-                  {st === 'Published' && '✓ '}
-                  {st}
-                </button>
-              ))}
+            {/* Category Filter Dropdown */}
+            <div className="flex items-center gap-2 shrink-0">
+              <select
+                value={resultCategoryFilter}
+                onChange={(e) => setResultCategoryFilter(e.target.value)}
+                className="bg-[#151728] border border-[#292d4a] text-slate-300 text-xs font-bold rounded-xl px-3 py-2 focus:outline-none focus:border-cyan-500 cursor-pointer"
+              >
+                <option value="All">All Categories</option>
+                {availableCategories.map(cat => (
+                  <option key={cat} value={cat}>{cat}</option>
+                ))}
+              </select>
             </div>
           </div>
 
@@ -706,20 +688,23 @@ export const MediaDashboard: React.FC<MediaDashboardProps> = ({
             {filteredCompResults.length === 0 ? (
               <div className="p-12 text-center bg-[#181b30] rounded-3xl border border-dashed border-[#292d4a] text-slate-400 space-y-2">
                 <FileText className="w-10 h-10 mx-auto text-slate-600" />
-                <p className="text-sm font-bold text-slate-300">No results found matching the filters.</p>
+                <p className="text-sm font-bold text-slate-300">
+                  {publishedCompResults.length === 0
+                    ? 'No published competition results yet.'
+                    : 'No published results found matching your filters.'}
+                </p>
+                <p className="text-xs text-slate-500">
+                  {publishedCompResults.length === 0
+                    ? 'Official competition results will appear here as soon as they are published by administrators.'
+                    : 'Try clearing your search query or selecting "All Categories".'}
+                </p>
               </div>
             ) : (
               <div className="grid grid-cols-1 gap-3.5">
-                {filteredCompResults.map(({ comp, publishedResult, isPublished, hasJudgeMarks, scoredRegs, status }) => (
+                {filteredCompResults.map(({ comp, publishedResult }) => (
                   <div
                     key={comp.id}
-                    className={`p-4 sm:p-5 rounded-2xl bg-[#181b30] border transition-all space-y-3 shadow-md ${
-                      isPublished
-                        ? 'border-emerald-500/40 hover:border-emerald-500/70'
-                        : hasJudgeMarks
-                        ? 'border-amber-500/40 hover:border-amber-500/70 bg-amber-950/10'
-                        : 'border-[#292d4a] hover:border-[#3a3f68]'
-                    }`}
+                    className="p-4 sm:p-5 rounded-2xl bg-[#181b30] border border-emerald-500/40 hover:border-emerald-500/70 transition-all space-y-3 shadow-md"
                   >
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                       <div>
@@ -740,26 +725,15 @@ export const MediaDashboard: React.FC<MediaDashboardProps> = ({
 
                       {/* Status Badge */}
                       <div className="flex items-center gap-2">
-                        {isPublished ? (
-                          <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-black border border-emerald-500/40">
-                            <CheckCircle2 className="w-3.5 h-3.5" />
-                            <span>Published</span>
-                          </span>
-                        ) : hasJudgeMarks ? (
-                          <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 text-xs font-black border border-amber-500/40">
-                            <Scale className="w-3.5 h-3.5" />
-                            <span>Judge Evaluated ({scoredRegs.length} marks recorded)</span>
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-slate-800 text-slate-400 text-xs font-bold border border-slate-700">
-                            <span>Pending Result</span>
-                          </span>
-                        )}
+                        <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-black border border-emerald-500/40">
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span>Published</span>
+                        </span>
                       </div>
                     </div>
 
-                    {/* Winner / Marks Summary Details */}
-                    {publishedResult ? (() => {
+                    {/* Winner Details */}
+                    {(() => {
                       const w = festStore.getResultWinners(publishedResult);
                       return (
                         <div className="p-3 bg-[#121424] rounded-xl border border-[#292d4a] space-y-2 text-xs">
@@ -818,68 +792,36 @@ export const MediaDashboard: React.FC<MediaDashboardProps> = ({
                           )}
                         </div>
                       );
-                    })() : hasJudgeMarks ? (
-                      <div className="p-3 bg-[#121424] rounded-xl border border-amber-500/30 space-y-2 text-xs">
-                        <div className="flex items-center justify-between text-[11px] font-bold text-amber-400">
-                          <span className="flex items-center gap-1">
-                            <Scale className="w-3.5 h-3.5" />
-                            <span>Confidential Judge Marks Recorded (Unpublished)</span>
-                          </span>
-                          <span className="text-slate-400">{scoredRegs.length} Candidates Scored</span>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          {scoredRegs.map(reg => (
-                            <span key={reg.id} className="px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[11px] font-mono font-bold">
-                              Code {reg.codeLetter || '—'}: <strong className="text-white">{reg.mark} pts</strong>
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    ) : null}
+                    })()}
 
                     {/* Actions Bar */}
                     <div className="flex items-center justify-between gap-2 pt-1 border-t border-[#292d4a]/60">
                       <div className="text-[11px] text-slate-400">
-                        {isPublished ? `Published ${new Date(publishedResult!.publishedAt).toLocaleDateString()}` : 'Awaiting live publication'}
+                        Published {new Date(publishedResult.publishedAt).toLocaleDateString()}
                       </div>
 
                       <div className="flex items-center gap-2">
-                        {publishedResult && (
-                          <>
-                            <button
-                              type="button"
-                              onClick={() => handleCopyResult(publishedResult)}
-                              className="px-3 py-1.5 rounded-xl bg-[#151728] hover:bg-[#202542] border border-[#292d4a] text-slate-300 hover:text-white text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
-                            >
-                              {copiedId === publishedResult.id ? (
-                                <Check className="w-3.5 h-3.5 text-emerald-400" />
-                              ) : (
-                                <Copy className="w-3.5 h-3.5" />
-                              )}
-                              <span>{copiedId === publishedResult.id ? 'Copied' : 'Copy Release'}</span>
-                            </button>
+                        <button
+                          type="button"
+                          onClick={() => handleCopyResult(publishedResult)}
+                          className="px-3 py-1.5 rounded-xl bg-[#151728] hover:bg-[#202542] border border-[#292d4a] text-slate-300 hover:text-white text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
+                        >
+                          {copiedId === publishedResult.id ? (
+                            <Check className="w-3.5 h-3.5 text-emerald-400" />
+                          ) : (
+                            <Copy className="w-3.5 h-3.5" />
+                          )}
+                          <span>{copiedId === publishedResult.id ? 'Copied' : 'Copy Release'}</span>
+                        </button>
 
-                            <button
-                              type="button"
-                              onClick={() => setSelectedPosterResult(publishedResult)}
-                              className="px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs transition-all flex items-center gap-1.5 shadow-md shadow-amber-500/20 cursor-pointer"
-                            >
-                              <Sparkles className="w-3.5 h-3.5" />
-                              <span>Create Poster</span>
-                            </button>
-                          </>
-                        )}
-
-                        {!isPublished && hasJudgeMarks && (
-                          <button
-                            type="button"
-                            onClick={() => handleQuickPublishJudgeMarks(comp)}
-                            className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition-all flex items-center gap-1.5 shadow-md cursor-pointer"
-                          >
-                            <CheckCircle2 className="w-3.5 h-3.5" />
-                            <span>Quick Publish Winners</span>
-                          </button>
-                        )}
+                        <button
+                          type="button"
+                          onClick={() => setSelectedPosterResult(publishedResult)}
+                          className="px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs transition-all flex items-center gap-1.5 shadow-md shadow-amber-500/20 cursor-pointer"
+                        >
+                          <Sparkles className="w-3.5 h-3.5" />
+                          <span>Create Poster</span>
+                        </button>
                       </div>
                     </div>
 

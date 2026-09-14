@@ -1225,6 +1225,19 @@ export const LeaderDashboard: React.FC<LeaderDashboardProps> = ({
                                                 {part.department.replace(/^Level\s+/i, 'Lvl ')}
                                               </span>
                                             )}
+                                            {(() => {
+                                              const selComp = competitions.find(c => c.id === selectedCompId);
+                                              if (!selComp || selComp.type === 'Group') return null;
+                                              const isStage = selComp.isStage !== undefined ? selComp.isStage : festStore.isStageVenue(selComp.venue);
+                                              const pStats = festStore.getParticipantEnrollmentStats(part.id, selComp.category || 'General');
+                                              const isFull = isStage ? pStats.isStageLimitReached : pStats.isOffStageLimitReached;
+                                              if (!isFull) return null;
+                                              return (
+                                                <span className="px-1.5 py-0.5 rounded bg-rose-500/25 text-rose-300 font-bold border border-rose-500/30 text-[9px] uppercase tracking-wide">
+                                                  Limit Full
+                                                </span>
+                                              );
+                                            })()}
                                           </div>
                                         </button>
                                       );
@@ -1247,18 +1260,19 @@ export const LeaderDashboard: React.FC<LeaderDashboardProps> = ({
                   const selectedComp = competitions.find(c => c.id === selectedCompId);
                   const isGroupComp = selectedComp?.type === 'Group';
                   const isCompStage = selectedComp ? (selectedComp.isStage !== undefined ? selectedComp.isStage : festStore.isStageVenue(selectedComp.venue)) : null;
+                  const targetCompCategory = selectedComp?.category || (partCategoryFilter !== 'All' ? partCategoryFilter : 'General');
 
                   if (selectedPartIds.length === 1) {
                     const part = myParticipants.find(p => p.id === selectedPartIds[0]);
                     if (!part) return null;
-                    const stats = festStore.getParticipantEnrollmentStats(part.id);
+                    const stats = festStore.getParticipantEnrollmentStats(part.id, targetCompCategory);
 
                     return (
                       <div className="p-3.5 rounded-2xl bg-[#141626] border border-[#262a47] space-y-2">
                         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 text-xs">
                           <span className="font-bold text-slate-300 flex items-center gap-1.5">
                             <span className="w-2 h-2 rounded-full bg-purple-400" />
-                            {part.name}{part.fatherName ? ` ${part.fatherName}` : ''} ({stats.category}) Individual Limits
+                            {part.name}{part.fatherName ? ` ${part.fatherName}` : ''} • [{targetCompCategory}] Competition Limits
                           </span>
                           <div className="flex items-center gap-2 text-[11px] text-slate-400">
                             {stats.groupEventsCount > 0 && (
@@ -1267,7 +1281,7 @@ export const LeaderDashboard: React.FC<LeaderDashboardProps> = ({
                               </span>
                             )}
                             <span>
-                              Individual: {stats.totalCount} / {stats.stageLimit + stats.offStageLimit}
+                              {targetCompCategory} Individual: {stats.totalCount} / {stats.stageLimit + stats.offStageLimit}
                             </span>
                           </div>
                         </div>
@@ -1293,7 +1307,7 @@ export const LeaderDashboard: React.FC<LeaderDashboardProps> = ({
                               : 'bg-[#181b30] border-[#22253f] text-slate-300'
                           }`}>
                             <div>
-                              <div className="text-[10px] uppercase font-bold text-slate-400">Stage (Ind.)</div>
+                              <div className="text-[10px] uppercase font-bold text-slate-400">{targetCompCategory} Stage (Ind.)</div>
                               <div className="font-black text-sm">
                                 {stats.stageCount} / {stats.stageLimit}
                               </div>
@@ -1313,7 +1327,7 @@ export const LeaderDashboard: React.FC<LeaderDashboardProps> = ({
                               : 'bg-[#181b30] border-[#22253f] text-slate-300'
                           }`}>
                             <div>
-                              <div className="text-[10px] uppercase font-bold text-slate-400">Off-Stage (Ind.)</div>
+                              <div className="text-[10px] uppercase font-bold text-slate-400">{targetCompCategory} Off-Stage (Ind.)</div>
                               <div className="font-black text-sm">
                                 {stats.offStageCount} / {stats.offStageLimit}
                               </div>
@@ -1335,7 +1349,7 @@ export const LeaderDashboard: React.FC<LeaderDashboardProps> = ({
                       <div className="flex items-center justify-between text-xs">
                         <span className="font-bold text-slate-300 flex items-center gap-1.5">
                           <span className="w-2 h-2 rounded-full bg-purple-400" />
-                          {selectedPartIds.length} Selected Participants Quota Overview
+                          {selectedPartIds.length} Selected Participants Quota Overview ({targetCompCategory})
                         </span>
                         {isGroupComp ? (
                           <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 font-bold">
@@ -1343,7 +1357,7 @@ export const LeaderDashboard: React.FC<LeaderDashboardProps> = ({
                           </span>
                         ) : (
                           <span className="text-[11px] text-slate-400">
-                            Checking individual event quotas
+                            Checking "{targetCompCategory}" category event quotas
                           </span>
                         )}
                       </div>
@@ -1352,7 +1366,7 @@ export const LeaderDashboard: React.FC<LeaderDashboardProps> = ({
                         {selectedPartIds.map(id => {
                           const part = myParticipants.find(p => p.id === id);
                           if (!part) return null;
-                          const stats = festStore.getParticipantEnrollmentStats(part.id);
+                          const stats = festStore.getParticipantEnrollmentStats(part.id, targetCompCategory);
                           const isBlocked = !isGroupComp && (
                             (isCompStage === true && stats.isStageLimitReached) ||
                             (isCompStage === false && stats.isOffStageLimitReached)
@@ -1369,7 +1383,7 @@ export const LeaderDashboard: React.FC<LeaderDashboardProps> = ({
                             >
                               <div className="min-w-0">
                                 <div className="font-bold text-white truncate text-[11px]">{part.name}</div>
-                                <div className="text-[10px] text-purple-300 font-mono">#{part.userId} • {stats.category}</div>
+                                <div className="text-[10px] text-purple-300 font-mono">#{part.userId} • {targetCompCategory}</div>
                               </div>
                               <div className="text-right shrink-0">
                                 {isBlocked ? (

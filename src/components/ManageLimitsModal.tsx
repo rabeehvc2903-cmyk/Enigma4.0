@@ -128,7 +128,7 @@ export const ManageLimitsModal: React.FC<ManageLimitsModalProps> = ({
                 Participant Competition Limits
               </h3>
               <p className="text-xs text-slate-400">
-                Configure maximum Stage & Off-Stage events per participant by Category
+                Configure maximum Stage & Off-Stage events per participant by Competition Category
               </p>
             </div>
           </div>
@@ -145,7 +145,7 @@ export const ManageLimitsModal: React.FC<ManageLimitsModalProps> = ({
           <div className="flex items-center gap-2">
             <Info className="w-4 h-4 text-purple-400 shrink-0" />
             <span>
-              Limits are enforced automatically when Group Leaders enroll participants in competitions.
+              Limits are enforced automatically based on each <strong>competition's category</strong> when enrolling participants into Stage & Off-Stage events.
             </span>
           </div>
           <button
@@ -163,7 +163,7 @@ export const ManageLimitsModal: React.FC<ManageLimitsModalProps> = ({
           <div className="space-y-3">
             <label className="text-xs font-black uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
               <Layers className="w-3.5 h-3.5 text-purple-400" />
-              Category Specific Limits
+              Competition Category Specific Limits
             </label>
 
             <div className="space-y-3">
@@ -270,7 +270,7 @@ export const ManageLimitsModal: React.FC<ManageLimitsModalProps> = ({
                   Default Fallback Limit
                 </h4>
                 <p className="text-[11px] text-slate-400">
-                  Applied to any newly added category or unspecified participant category
+                  Applied to any newly added category or unspecified competition category
                 </p>
               </div>
             </div>
