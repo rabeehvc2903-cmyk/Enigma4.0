@@ -10,6 +10,7 @@ import { CreateScheduleModal } from './CreateScheduleModal';
 import { FestOverviewView } from './FestOverviewView';
 import { PrintDayScheduleModal } from './PrintDayScheduleModal';
 import { PrintParticipantsReportModal } from './PrintParticipantsReportModal';
+import { PrintResultsReportModal } from './PrintResultsReportModal';
 import { PrintValuationSheetModal } from './PrintValuationSheetModal';
 import { ParticipantAvatar } from './ParticipantAvatar';
 import { ManageLimitsModal } from './ManageLimitsModal';
@@ -841,10 +842,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // --- PARTICIPANTS REPORT ENGINE STATE ---
   const [reportingCompId, setReportingCompId] = useState<string>('');
   const [reportingCategoryFilter, setReportingCategoryFilter] = useState<string>('All');
+  const [reportingCompSearch, setReportingCompSearch] = useState<string>('');
   const [reportingSearch, setReportingSearch] = useState<string>('');
   const [showCallSheetModal, setShowCallSheetModal] = useState<boolean>(false);
   const [reportingSuccessMsg, setReportingSuccessMsg] = useState<string>('');
   const [reportingStatusFilter, setReportingStatusFilter] = useState<'All' | 'Reported' | 'Absent'>('All');
+
+  // --- RESULTS REPORT ENGINE STATE ---
+  const [resultsReportCompId, setResultsReportCompId] = useState<string>('All');
+  const [resultsReportCategoryFilter, setResultsReportCategoryFilter] = useState<string>('All');
+  const [showResultsReportModal, setShowResultsReportModal] = useState<boolean>(false);
 
   // --- VALUATION SHEET STATE ---
   const [valuationCompIds, setValuationCompIds] = useState<string[]>(() => festStore.getActiveValuationCompIds());
@@ -1838,6 +1845,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <Edit3 className="w-3.5 h-3.5 text-purple-300" />
                 <span>Edit Scale</span>
               </button>
+
+              {/* Result PDF Download Button on top of Publish Competition Results panel */}
+              <button
+                type="button"
+                onClick={() => {
+                  setResultsReportCompId('All');
+                  setResultsReportCategoryFilter('All');
+                  setShowResultsReportModal(true);
+                }}
+                className="px-3.5 py-2 sm:px-4 sm:py-2 bg-gradient-to-r from-amber-500 to-yellow-600 hover:from-amber-400 hover:to-yellow-500 text-white rounded-2xl text-xs font-black uppercase tracking-wider flex items-center gap-1.5 shadow-lg shadow-amber-500/30 transition-all shrink-0 cursor-pointer"
+                title="Download / Print Competition Results PDF Report"
+              >
+                <Printer className="w-4 h-4" />
+                <span>Result PDF</span>
+              </button>
             </div>
           </div>
 
@@ -2543,27 +2565,44 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             )}
                           </td>
                           <td className="py-3 px-4 text-right">
-                            <button
-                              type="button"
-                              onClick={() => handleTogglePublishResult(comp)}
-                              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-sm flex items-center justify-end gap-1.5 ml-auto ${
-                                isPublished
-                                  ? 'bg-rose-500/20 hover:bg-rose-600 border border-rose-500/40 text-rose-300 hover:text-white'
-                                  : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-600/20'
-                              }`}
-                            >
-                              {isPublished ? (
-                                <>
-                                  <EyeOff className="w-3.5 h-3.5" />
-                                  <span>Unpublish</span>
-                                </>
-                              ) : (
-                                <>
-                                  <CheckCircle className="w-3.5 h-3.5" />
-                                  <span>Publish</span>
-                                </>
+                            <div className="flex items-center justify-end gap-2">
+                              {isPublished && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setResultsReportCompId(comp.id);
+                                    setResultsReportCategoryFilter(comp.category || 'All');
+                                    setShowResultsReportModal(true);
+                                  }}
+                                  className="px-2.5 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 text-xs font-bold transition-all flex items-center gap-1 cursor-pointer"
+                                  title="Download / Print Result PDF for this competition"
+                                >
+                                  <Printer className="w-3.5 h-3.5" />
+                                  <span>PDF</span>
+                                </button>
                               )}
-                            </button>
+                              <button
+                                type="button"
+                                onClick={() => handleTogglePublishResult(comp)}
+                                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-sm flex items-center justify-end gap-1.5 ${
+                                  isPublished
+                                    ? 'bg-rose-500/20 hover:bg-rose-600 border border-rose-500/40 text-rose-300 hover:text-white'
+                                    : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-600/20'
+                                }`}
+                              >
+                                {isPublished ? (
+                                  <>
+                                    <EyeOff className="w-3.5 h-3.5" />
+                                    <span>Unpublish</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <CheckCircle className="w-3.5 h-3.5" />
+                                    <span>Publish</span>
+                                  </>
+                                )}
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -2585,7 +2624,50 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         const compCategoryList = Array.from(new Set(scheduledComps.map(c => c.category || 'General')));
         const reportingCategories = ['All', ...compCategoryList];
 
-        const filteredCandidates = [...compRegistrations].sort((a, b) => {
+        const filteredScheduledComps = scheduledComps.filter(comp => {
+          const matchesCat = reportingCategoryFilter === 'All' || comp.category === reportingCategoryFilter;
+          if (!matchesCat) return false;
+          if (!reportingCompSearch.trim()) return true;
+          const q = reportingCompSearch.trim().toLowerCase();
+          return (
+            comp.name.toLowerCase().includes(q) ||
+            (comp.category && comp.category.toLowerCase().includes(q)) ||
+            (comp.venue && comp.venue.toLowerCase().includes(q)) ||
+            (comp.scheduleTime && comp.scheduleTime.toLowerCase().includes(q)) ||
+            ((comp as any).code && String((comp as any).code).toLowerCase().includes(q))
+          );
+        });
+
+        // Filter candidates by status and search query
+        let candidates = [...compRegistrations];
+        
+        if (reportingStatusFilter === 'Reported') {
+          candidates = candidates.filter(r => r.isReported === true);
+        } else if (reportingStatusFilter === 'Absent') {
+          candidates = candidates.filter(r => r.isReported !== true);
+        }
+
+        const candidateSearchTerm = reportingSearch.trim().toLowerCase();
+        if (candidateSearchTerm) {
+          candidates = candidates.filter(r => {
+            const fullName = festStore.getParticipantFullName(r.participantName, r.id).toLowerCase();
+            const rawName = (r.participantName || '').toLowerCase();
+            const chestNo = (r.participantUserId || '').toLowerCase();
+            const code = (r.codeLetter || '').toLowerCase();
+            const grp = (r.groupName || '').toLowerCase();
+            const dept = ((r as any).department || '').toLowerCase();
+            return (
+              fullName.includes(candidateSearchTerm) ||
+              rawName.includes(candidateSearchTerm) ||
+              chestNo.includes(candidateSearchTerm) ||
+              code.includes(candidateSearchTerm) ||
+              grp.includes(candidateSearchTerm) ||
+              dept.includes(candidateSearchTerm)
+            );
+          });
+        }
+
+        const filteredCandidates = candidates.sort((a, b) => {
           const aReported = a.isReported === true ? 1 : 0;
           const bReported = b.isReported === true ? 1 : 0;
           if (aReported !== bReported) {
@@ -2681,24 +2763,48 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </div>
               )}
 
-              {/* Competition Selector */}
+              {/* Competition Selector & Search */}
               <div className="space-y-3">
-                {/* Category Filter Pills */}
-                <div className="flex flex-wrap items-center gap-1.5 pb-1">
-                  {reportingCategories.map(cat => (
-                    <button
-                      key={cat}
-                      type="button"
-                      onClick={() => setReportingCategoryFilter(cat)}
-                      className={`px-3 py-1 text-xs font-bold rounded-xl transition-all ${
-                        reportingCategoryFilter === cat
-                          ? 'bg-cyan-600 text-white shadow-md'
-                          : 'bg-[#181b30] text-slate-400 hover:text-white border border-[#292d4a]'
-                      }`}
-                    >
-                      {cat}
-                    </button>
-                  ))}
+                <div className="flex flex-col md:flex-row items-stretch md:items-center gap-3">
+                  {/* Search Competitions Input */}
+                  <div className="relative flex-1">
+                    <Search className="w-4 h-4 text-cyan-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    <input
+                      type="text"
+                      value={reportingCompSearch}
+                      onChange={(e) => setReportingCompSearch(e.target.value)}
+                      placeholder="Search scheduled competitions by name, stage, time..."
+                      className="w-full bg-[#181b30] border border-[#292d4a] focus:border-cyan-500 rounded-xl pl-10 pr-9 py-2 text-xs text-white placeholder-slate-500 focus:outline-none transition-all shadow-inner"
+                    />
+                    {reportingCompSearch && (
+                      <button
+                        type="button"
+                        onClick={() => setReportingCompSearch('')}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white p-0.5 rounded-full hover:bg-white/10 text-xs font-bold cursor-pointer"
+                        title="Clear search"
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Category Filter Pills */}
+                  <div className="flex flex-wrap items-center gap-1.5 overflow-x-auto pb-1">
+                    {reportingCategories.map(cat => (
+                      <button
+                        key={cat}
+                        type="button"
+                        onClick={() => setReportingCategoryFilter(cat)}
+                        className={`px-3 py-1.5 text-xs font-bold rounded-xl transition-all cursor-pointer ${
+                          reportingCategoryFilter === cat
+                            ? 'bg-cyan-600 text-white shadow-md shadow-cyan-600/30'
+                            : 'bg-[#181b30] text-slate-400 hover:text-white border border-[#292d4a]'
+                        }`}
+                      >
+                        {cat}
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
                 <select
@@ -2706,29 +2812,145 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   onChange={(e) => {
                     setReportingCompId(e.target.value);
                     setReportingSuccessMsg('');
+                    setReportingSearch('');
                   }}
                   className="w-full bg-[#181b30] border border-[#292d4a] focus:border-cyan-500 rounded-2xl p-3.5 text-sm text-white font-bold focus:outline-none transition-all"
                 >
-                  <option value="">-- Choose Competition to Manage Reporting --</option>
-                  {scheduledComps
-                    .filter(comp => reportingCategoryFilter === 'All' || comp.category === reportingCategoryFilter)
-                    .map((comp) => (
-                      <option key={comp.id} value={comp.id}>
-                        {comp.name}
-                      </option>
-                    ))}
+                  <option value="">
+                    {filteredScheduledComps.length === 0
+                      ? '-- No scheduled competitions match search --'
+                      : `-- Choose Competition to Manage Reporting (${filteredScheduledComps.length} available) --`}
+                  </option>
+                  {filteredScheduledComps.map((comp) => (
+                    <option key={comp.id} value={comp.id}>
+                      {comp.name} {comp.category ? `(${comp.category})` : ''} {comp.venue ? `— ${comp.venue}` : ''}
+                    </option>
+                  ))}
                 </select>
               </div>
 
               {/* When Event is Selected */}
               {selectedRepComp ? (
-                <div className="space-y-6 py-0">
+                <div className="space-y-4 py-0">
+                  {/* Participant Search & Status Filter Bar */}
+                  <div className="bg-[#181b30] p-4 rounded-2xl border border-[#292d4a] flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 shadow-inner">
+                    {/* Search Candidates Input */}
+                    <div className="relative flex-1">
+                      <Search className="w-4 h-4 text-cyan-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                      <input
+                        type="text"
+                        value={reportingSearch}
+                        onChange={(e) => setReportingSearch(e.target.value)}
+                        placeholder="Search participants by name, chest number, code letter, group..."
+                        className="w-full bg-[#131526] border border-[#292d4a] focus:border-cyan-500 rounded-xl pl-10 pr-9 py-2 text-xs text-white placeholder-slate-400 focus:outline-none transition-all"
+                      />
+                      {reportingSearch && (
+                        <button
+                          type="button"
+                          onClick={() => setReportingSearch('')}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white p-0.5 rounded-full hover:bg-white/10 text-xs font-bold cursor-pointer"
+                          title="Clear search"
+                        >
+                          ×
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Attendance Status Filters */}
+                    <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
+                      <span className="text-[10px] font-extrabold uppercase text-slate-400 mr-1">Status:</span>
+                      <button
+                        type="button"
+                        onClick={() => setReportingStatusFilter('All')}
+                        className={`px-3 py-1 text-xs font-bold rounded-xl transition-all cursor-pointer ${
+                          reportingStatusFilter === 'All'
+                            ? 'bg-cyan-600 text-white shadow-md'
+                            : 'bg-[#131526] text-slate-400 hover:text-white border border-[#292d4a]'
+                        }`}
+                      >
+                        All ({compRegistrations.length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setReportingStatusFilter('Reported')}
+                        className={`px-3 py-1 text-xs font-bold rounded-xl transition-all cursor-pointer ${
+                          reportingStatusFilter === 'Reported'
+                            ? 'bg-emerald-600 text-white shadow-md'
+                            : 'bg-[#131526] text-slate-400 hover:text-emerald-300 border border-[#292d4a]'
+                        }`}
+                      >
+                        Reported ({compRegistrations.filter(r => r.isReported === true).length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setReportingStatusFilter('Absent')}
+                        className={`px-3 py-1 text-xs font-bold rounded-xl transition-all cursor-pointer ${
+                          reportingStatusFilter === 'Absent'
+                            ? 'bg-rose-600 text-white shadow-md'
+                            : 'bg-[#131526] text-slate-400 hover:text-rose-300 border border-[#292d4a]'
+                        }`}
+                      >
+                        Absent ({compRegistrations.filter(r => !r.isReported).length})
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Search / Filter Status Summary */}
+                  {(reportingSearch || reportingStatusFilter !== 'All') && (
+                    <div className="flex items-center justify-between text-xs text-slate-400 px-1">
+                      <span>
+                        Showing <strong className="text-white">{filteredCandidates.length}</strong> of{' '}
+                        <strong className="text-white">{compRegistrations.length}</strong> participants
+                        {reportingSearch && (
+                          <> matching &ldquo;<span className="text-cyan-300 font-bold">{reportingSearch}</span>&rdquo;</>
+                        )}
+                        {reportingStatusFilter !== 'All' && (
+                          <> (Status: <span className="text-white font-bold">{reportingStatusFilter}</span>)</>
+                        )}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setReportingSearch('');
+                          setReportingStatusFilter('All');
+                        }}
+                        className="text-[11px] font-bold text-cyan-400 hover:text-cyan-300 underline cursor-pointer"
+                      >
+                        Reset Filters
+                      </button>
+                    </div>
+                  )}
+
                   {/* Candidates Table */}
                   {filteredCandidates.length === 0 ? (
-                    <div className="p-8 text-center bg-[#181b30] rounded-2xl border border-[#292d4a] text-slate-400">
-                      <Users className="w-10 h-10 mx-auto text-slate-600 mb-2" />
-                      <p className="text-sm font-bold text-slate-300">No participants registered for this event yet.</p>
-                      <p className="text-xs text-slate-500 mt-1">Group leaders must register participants first.</p>
+                    <div className="p-8 text-center bg-[#181b30] rounded-2xl border border-[#292d4a] text-slate-400 space-y-3">
+                      <Users className="w-10 h-10 mx-auto text-slate-600" />
+                      {compRegistrations.length === 0 ? (
+                        <>
+                          <p className="text-sm font-bold text-slate-300">No participants registered for this event yet.</p>
+                          <p className="text-xs text-slate-500">Group leaders must register participants first.</p>
+                        </>
+                      ) : (
+                        <>
+                          <p className="text-sm font-bold text-slate-300">
+                            No participants match your search criteria.
+                          </p>
+                          <p className="text-xs text-slate-500">
+                            Try adjusting your search query or status filter.
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setReportingSearch('');
+                              setReportingStatusFilter('All');
+                            }}
+                            className="px-4 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold rounded-xl transition-all cursor-pointer shadow-md inline-flex items-center gap-1.5"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                            <span>Clear Search & Filter</span>
+                          </button>
+                        </>
+                      )}
                     </div>
                   ) : (
                     <div className="overflow-x-auto rounded-2xl border border-[#292d4a] bg-[#181b30]">
@@ -7783,6 +8005,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         groups={groups}
         initialCompId={reportingCompId}
         initialCategory={reportingCategoryFilter}
+      />
+
+      {/* PRINT RESULTS REPORT MODAL */}
+      <PrintResultsReportModal
+        isOpen={showResultsReportModal}
+        onClose={() => setShowResultsReportModal(false)}
+        competitions={competitions}
+        registrations={registrations}
+        results={results}
+        groups={groups}
+        initialCompId={resultsReportCompId}
+        initialCategory={resultsReportCategoryFilter}
       />
 
       {/* PRINT DAY SCHEDULE MODAL */}

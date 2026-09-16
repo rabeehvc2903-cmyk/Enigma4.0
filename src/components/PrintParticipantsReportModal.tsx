@@ -102,6 +102,9 @@ export const PrintParticipantsReportModal: React.FC<PrintParticipantsReportModal
   // Search state for the report
   const [reportSearchQuery, setReportSearchQuery] = useState<string>('');
 
+  // Attendance status filter state: 'All' | 'Reported' | 'Absent'
+  const [candidateStatusFilter, setCandidateStatusFilter] = useState<'All' | 'Reported' | 'Absent'>('All');
+
   // Dropdown popover state for competition multi-selector
   const [compDropdownOpen, setCompDropdownOpen] = useState(false);
   const [compSearchTerm, setCompSearchTerm] = useState('');
@@ -218,7 +221,19 @@ export const PrintParticipantsReportModal: React.FC<PrintParticipantsReportModal
       comps = availableCompetitions.filter(c => selectedSet.has(c.id));
     }
 
-    // 2. Global report search query across competitions & candidates
+    // 2. Filter by candidate status if requested ('Reported' or 'Absent')
+    if (candidateStatusFilter !== 'All') {
+      comps = comps.filter(comp => {
+        const compRegs = safeRegistrations.filter(r => r.competitionId === comp.id);
+        if (candidateStatusFilter === 'Reported') {
+          return compRegs.some(r => r.isReported === true);
+        } else {
+          return compRegs.some(r => r.isReported !== true);
+        }
+      });
+    }
+
+    // 3. Global report search query across competitions & candidates
     const term = reportSearchQuery.trim().toLowerCase();
     if (term) {
       comps = comps.filter(comp => {
@@ -232,21 +247,37 @@ export const PrintParticipantsReportModal: React.FC<PrintParticipantsReportModal
 
         if (matchesComp) return true;
 
-        // Or match any registered participant in this competition
-        const compRegs = safeRegistrations.filter(r => r.competitionId === comp.id);
-        const matchesReg = compRegs.some(r =>
-          (r.participantName && r.participantName.toLowerCase().includes(term)) ||
-          (r.participantUserId && r.participantUserId.toLowerCase().includes(term)) ||
-          (r.groupName && r.groupName.toLowerCase().includes(term)) ||
-          (r.codeLetter && r.codeLetter.toLowerCase().includes(term))
-        );
+        // Or match any registered participant in this competition (respecting status filter)
+        let compRegs = safeRegistrations.filter(r => r.competitionId === comp.id);
+        if (candidateStatusFilter === 'Reported') {
+          compRegs = compRegs.filter(r => r.isReported === true);
+        } else if (candidateStatusFilter === 'Absent') {
+          compRegs = compRegs.filter(r => r.isReported !== true);
+        }
+
+        const matchesReg = compRegs.some(r => {
+          const fullName = festStore.getParticipantFullName(r.participantName, r.id).toLowerCase();
+          const rawName = (r.participantName || '').toLowerCase();
+          const chestNo = (r.participantUserId || '').toLowerCase();
+          const code = (r.codeLetter || '').toLowerCase();
+          const grp = (r.groupName || '').toLowerCase();
+          const dept = ((r as any).department || '').toLowerCase();
+          return (
+            fullName.includes(term) ||
+            rawName.includes(term) ||
+            chestNo.includes(term) ||
+            code.includes(term) ||
+            grp.includes(term) ||
+            dept.includes(term)
+          );
+        });
 
         return matchesReg;
       });
     }
 
     return comps;
-  }, [availableCompetitions, isAllCompetitions, selectedCompIds, reportSearchQuery, safeRegistrations]);
+  }, [availableCompetitions, isAllCompetitions, selectedCompIds, candidateStatusFilter, reportSearchQuery, safeRegistrations]);
 
   // Calculate overall metrics
   const sheetStats = useMemo(() => {
@@ -257,11 +288,17 @@ export const PrintParticipantsReportModal: React.FC<PrintParticipantsReportModal
 
     for (const reg of safeRegistrations) {
       if (compIds.has(reg.competitionId)) {
-        totalEntries++;
         if (reg.isReported === true) {
           reportedCount++;
         } else {
           absentCount++;
+        }
+        if (candidateStatusFilter === 'All') {
+          totalEntries++;
+        } else if (candidateStatusFilter === 'Reported' && reg.isReported === true) {
+          totalEntries++;
+        } else if (candidateStatusFilter === 'Absent' && reg.isReported !== true) {
+          totalEntries++;
         }
       }
     }
@@ -272,7 +309,7 @@ export const PrintParticipantsReportModal: React.FC<PrintParticipantsReportModal
       reportedCount,
       absentCount,
     };
-  }, [targetCompetitions, safeRegistrations]);
+  }, [targetCompetitions, safeRegistrations, candidateStatusFilter]);
 
   // Direct PDF Download with jsPDF and html-to-image (renders each competition page cleanly with exact A4 aspect ratio)
   const handleDownloadPdf = async () => {
@@ -493,8 +530,8 @@ export const PrintParticipantsReportModal: React.FC<PrintParticipantsReportModal
 
         {/* FILTER & OPTION CONTROLS BAR */}
         <div className="p-3.5 sm:p-4 bg-[#151728] border-b border-[#292d4a] flex flex-col gap-3 shrink-0 text-xs">
-          {/* TOP ROW: Global Search Bar + Show All Competitions Button */}
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+          {/* TOP ROW: Global Search Bar + Category Filter Pills */}
+          <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
             {/* Global Search Bar */}
             <div className="relative flex-1">
               <Search className="w-4 h-4 text-purple-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -517,23 +554,44 @@ export const PrintParticipantsReportModal: React.FC<PrintParticipantsReportModal
               )}
             </div>
 
-            {/* Quick 'Show All Scheduled Competitions' button */}
-            <button
-              type="button"
-              onClick={handleSelectAllCompetitions}
-              className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer whitespace-nowrap shadow-sm ${
-                isAllCompetitions && !reportSearchQuery
-                  ? 'bg-purple-600 text-white shadow-purple-600/30 ring-2 ring-purple-400/40'
-                  : 'bg-[#1e223d] border border-[#292d4a] text-slate-300 hover:text-white hover:border-purple-500/50'
-              }`}
-              title="Display all scheduled competitions across the festival in one printable report"
-            >
-              <Layers className="w-4 h-4 text-purple-300" />
-              <span>Show All Scheduled</span>
-              <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-white/20 font-mono">
-                {availableCompetitions.length}
-              </span>
-            </button>
+            {/* Category Filter Pills */}
+            <div className="flex flex-wrap items-center gap-1.5 overflow-x-auto pb-1">
+              <button
+                type="button"
+                onClick={() => handleSelectCategoryCompetitions('All')}
+                className={`px-3 py-1.5 text-xs font-bold rounded-xl transition-all cursor-pointer ${
+                  isAllCompetitions
+                    ? 'bg-purple-600 text-white shadow-md shadow-purple-600/30'
+                    : 'bg-[#1e223d] text-slate-400 hover:text-white border border-[#292d4a]'
+                }`}
+              >
+                All Categories ({availableCompetitions.length})
+              </button>
+              {availableCategories.map((cat) => {
+                const count = availableCompetitions.filter((c) => c.category === cat).length;
+                const isSelectedCat =
+                  !isAllCompetitions &&
+                  selectedCompIds.length === count &&
+                  availableCompetitions
+                    .filter((c) => c.category === cat)
+                    .every((c) => selectedCompIds.includes(c.id));
+
+                return (
+                  <button
+                    key={cat}
+                    type="button"
+                    onClick={() => handleSelectCategoryCompetitions(cat)}
+                    className={`px-3 py-1.5 text-xs font-bold rounded-xl transition-all cursor-pointer ${
+                      isSelectedCat
+                        ? 'bg-purple-600 text-white shadow-md shadow-purple-600/30'
+                        : 'bg-[#1e223d] text-slate-400 hover:text-white border border-[#292d4a]'
+                    }`}
+                  >
+                    {cat} ({count})
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           {/* BOTTOM ROW: Select Multiple Competitions (Dropdown) + Options */}
@@ -758,8 +816,49 @@ export const PrintParticipantsReportModal: React.FC<PrintParticipantsReportModal
               )}
             </div>
 
-            {/* Options Checkboxes */}
-            <div className="flex items-center gap-4 py-2 shrink-0 self-end sm:self-center">
+            {/* Candidate Attendance Status Filter & Options */}
+            <div className="flex flex-wrap items-center gap-3 py-1 shrink-0">
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 mr-1">
+                  Attendance:
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setCandidateStatusFilter('All')}
+                  className={`px-2.5 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                    candidateStatusFilter === 'All'
+                      ? 'bg-purple-600 text-white shadow-md shadow-purple-600/30'
+                      : 'bg-[#1e223d] text-slate-400 hover:text-white border border-[#292d4a]'
+                  }`}
+                >
+                  All
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCandidateStatusFilter('Reported')}
+                  className={`px-2.5 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                    candidateStatusFilter === 'Reported'
+                      ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/30'
+                      : 'bg-[#1e223d] text-slate-400 hover:text-emerald-300 border border-[#292d4a]'
+                  }`}
+                >
+                  Reported Only
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCandidateStatusFilter('Absent')}
+                  className={`px-2.5 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                    candidateStatusFilter === 'Absent'
+                      ? 'bg-rose-600 text-white shadow-md shadow-rose-600/30'
+                      : 'bg-[#1e223d] text-slate-400 hover:text-rose-300 border border-[#292d4a]'
+                  }`}
+                >
+                  Absent Only
+                </button>
+              </div>
+
+              <div className="h-4 w-px bg-[#292d4a] hidden sm:block" />
+
               <label className="flex items-center gap-1.5 cursor-pointer text-slate-300 hover:text-white font-bold text-xs">
                 <input
                   type="checkbox"
@@ -771,6 +870,43 @@ export const PrintParticipantsReportModal: React.FC<PrintParticipantsReportModal
               </label>
             </div>
           </div>
+
+          {/* Active Search & Filter Indicator Bar */}
+          {(reportSearchQuery || candidateStatusFilter !== 'All' || !isAllCompetitions) && (
+            <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400 px-1 pt-1.5 border-t border-[#292d4a]/60">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span>
+                  Showing <strong className="text-white font-mono">{targetCompetitions.length}</strong> events (
+                  <strong className="text-white font-mono">{sheetStats.totalEntries}</strong> participants)
+                </span>
+                {reportSearchQuery && (
+                  <span className="inline-flex items-center gap-1 bg-purple-500/10 border border-purple-500/30 text-purple-300 px-2 py-0.5 rounded-md font-medium">
+                    Search: &ldquo;{reportSearchQuery}&rdquo;
+                  </span>
+                )}
+                {candidateStatusFilter !== 'All' && (
+                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-bold text-[10px] ${
+                    candidateStatusFilter === 'Reported'
+                      ? 'bg-emerald-500/20 border border-emerald-500/40 text-emerald-300'
+                      : 'bg-rose-500/20 border border-rose-500/40 text-rose-300'
+                  }`}>
+                    {candidateStatusFilter} Only
+                  </span>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setReportSearchQuery('');
+                  setCandidateStatusFilter('All');
+                  handleSelectAllCompetitions();
+                }}
+                className="text-purple-400 hover:text-purple-300 font-bold underline cursor-pointer shrink-0"
+              >
+                Reset All Filters
+              </button>
+            </div>
+          )}
 
           {/* Selected Competitions Chips / Badge Tray (when a customized subset is selected) */}
           {!isAllCompetitions && selectedCompIds.length > 0 && selectedCompIds.length < availableCompetitions.length && (
@@ -839,6 +975,13 @@ export const PrintParticipantsReportModal: React.FC<PrintParticipantsReportModal
               targetCompetitions.map((comp, pageIndex) => {
                 let compRegs = safeRegistrations.filter((r) => r.competitionId === comp.id);
 
+                // Filter by candidate status if active
+                if (candidateStatusFilter === 'Reported') {
+                  compRegs = compRegs.filter((r) => r.isReported === true);
+                } else if (candidateStatusFilter === 'Absent') {
+                  compRegs = compRegs.filter((r) => r.isReported !== true);
+                }
+
                 // Filter candidates by search term if search query is active
                 const term = reportSearchQuery.trim().toLowerCase();
                 if (term) {
@@ -850,13 +993,22 @@ export const PrintParticipantsReportModal: React.FC<PrintParticipantsReportModal
                     ((comp as any).code && String((comp as any).code).toLowerCase().includes(term));
 
                   if (!isCompMatch) {
-                    compRegs = compRegs.filter(
-                      (r) =>
-                        (r.participantName && r.participantName.toLowerCase().includes(term)) ||
-                        (r.participantUserId && r.participantUserId.toLowerCase().includes(term)) ||
-                        (r.groupName && r.groupName.toLowerCase().includes(term)) ||
-                        (r.codeLetter && r.codeLetter.toLowerCase().includes(term))
-                    );
+                    compRegs = compRegs.filter((r) => {
+                      const fullName = festStore.getParticipantFullName(r.participantName, r.id).toLowerCase();
+                      const rawName = (r.participantName || '').toLowerCase();
+                      const chestNo = (r.participantUserId || '').toLowerCase();
+                      const code = (r.codeLetter || '').toLowerCase();
+                      const grp = (r.groupName || '').toLowerCase();
+                      const dept = ((r as any).department || '').toLowerCase();
+                      return (
+                        fullName.includes(term) ||
+                        rawName.includes(term) ||
+                        chestNo.includes(term) ||
+                        code.includes(term) ||
+                        grp.includes(term) ||
+                        dept.includes(term)
+                      );
+                    });
                   }
                 }
 
@@ -910,6 +1062,15 @@ export const PrintParticipantsReportModal: React.FC<PrintParticipantsReportModal
                           <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-purple-100 text-purple-900 border border-purple-200 uppercase whitespace-nowrap shrink-0">
                             {comp.category}
                           </span>
+                          {candidateStatusFilter !== 'All' && (
+                            <span className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded border uppercase whitespace-nowrap shrink-0 ${
+                              candidateStatusFilter === 'Reported'
+                                ? 'bg-emerald-100 text-emerald-900 border-emerald-300'
+                                : 'bg-rose-100 text-rose-900 border-rose-300'
+                            }`}>
+                              {candidateStatusFilter} Only
+                            </span>
+                          )}
                         </div>
 
                         <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-900 shrink-0">
