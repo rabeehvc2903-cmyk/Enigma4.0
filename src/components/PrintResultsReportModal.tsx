@@ -18,6 +18,8 @@ import {
   CheckSquare,
   Sparkles,
   CheckCircle2,
+  CheckCircle,
+  Clock,
   Medal,
 } from 'lucide-react';
 
@@ -30,6 +32,7 @@ interface PrintResultsReportModalProps {
   groups?: Group[];
   initialCompId?: string;
   initialCategory?: string;
+  initialStatus?: 'All' | 'Published' | 'Pending';
 }
 
 export const PrintResultsReportModal: React.FC<PrintResultsReportModalProps> = ({
@@ -41,6 +44,7 @@ export const PrintResultsReportModal: React.FC<PrintResultsReportModalProps> = (
   groups = [],
   initialCompId = '',
   initialCategory = 'All',
+  initialStatus = 'All',
 }) => {
   const safeRegistrations = useMemo(() => (Array.isArray(registrations) ? registrations : []), [registrations]);
   const safeCompetitions = useMemo(() => (Array.isArray(competitions) ? competitions : []), [competitions]);
@@ -50,33 +54,319 @@ export const PrintResultsReportModal: React.FC<PrintResultsReportModalProps> = (
   // Determine if competition has evaluated / saved judge marks or completed status
   const isScoredByJudge = (comp: Competition): boolean => {
     const compRegs = safeRegistrations.filter((r) => r.competitionId === comp.id);
-    const reportedRegs = compRegs.filter((r) => r.isReported === true);
+    const hasRegMarks = compRegs.some(
+      (r) =>
+        (r.mark !== undefined && r.mark !== null && String(r.mark).trim() !== '') ||
+        (r.judgeRank !== undefined && r.judgeRank !== null)
+    );
+    const hasReportedRegs = compRegs.some((r) => r.isReported === true);
+
     return (
-      reportedRegs.length > 0 &&
-      (reportedRegs.some((r) => r.mark !== undefined && r.mark !== null && String(r.mark).trim() !== '') ||
-        reportedRegs.some((r) => r.judgeRank !== undefined && r.judgeRank !== null) ||
-        comp.status === 'completed' ||
-        comp.isPublishedResult === true ||
-        safeResults.some((res) => res.competitionId === comp.id))
+      hasRegMarks ||
+      comp.status === 'completed' ||
+      comp.isPublishedResult === true ||
+      safeResults.some((res) => res.competitionId === comp.id) ||
+      (hasReportedRegs && compRegs.length > 0)
     );
   };
 
-  // Filter state: show only published or all evaluated
-  const [filterPublishedOnly, setFilterPublishedOnly] = useState<boolean>(false);
+  // Filter state: show All, Published only, or Pending Publish only
+  const [statusFilter, setStatusFilter] = useState<'All' | 'Published' | 'Pending'>(initialStatus || 'All');
+
+  // Keep in sync with initialStatus prop if it changes
+  useEffect(() => {
+    if (initialStatus) {
+      setStatusFilter(initialStatus);
+    }
+  }, [initialStatus]);
 
   // Available competitions for result sheet printing
   const availableCompetitions = useMemo(() => {
     return safeCompetitions.filter((comp) => {
+      // If a specific competition was requested directly, always include it
+      if (initialCompId && initialCompId !== 'All' && comp.id === initialCompId) {
+        return true;
+      }
+
       const hasResult = safeResults.some((res) => res.competitionId === comp.id);
       const isPublished = comp.isPublishedResult || hasResult;
       const isEvaluated = isScoredByJudge(comp);
 
-      if (filterPublishedOnly) {
+      if (!isPublished && !isEvaluated) return false;
+
+      if (statusFilter === 'Published') {
         return isPublished;
       }
-      return isPublished || isEvaluated;
+      if (statusFilter === 'Pending') {
+        return !isPublished && isEvaluated;
+      }
+      return true;
     });
-  }, [safeCompetitions, safeResults, safeRegistrations, filterPublishedOnly]);
+  }, [safeCompetitions, safeResults, safeRegistrations, statusFilter, initialCompId]);
+
+  const evaluatedCount = useMemo(() => {
+    return safeCompetitions.filter((comp) => {
+      const hasResult = safeResults.some((res) => res.competitionId === comp.id);
+      const isPublished = comp.isPublishedResult || hasResult;
+      const isEvaluated = isScoredByJudge(comp);
+      return isPublished || isEvaluated;
+    }).length;
+  }, [safeCompetitions, safeResults, safeRegistrations]);
+
+  const publishedCount = useMemo(() => {
+    return safeCompetitions.filter((comp) => {
+      const hasResult = safeResults.some((res) => res.competitionId === comp.id);
+      return comp.isPublishedResult || hasResult;
+    }).length;
+  }, [safeCompetitions, safeResults]);
+
+  const pendingCount = useMemo(() => {
+    return safeCompetitions.filter((comp) => {
+      const hasResult = safeResults.some((res) => res.competitionId === comp.id);
+      const isPublished = comp.isPublishedResult || hasResult;
+      const isEvaluated = isScoredByJudge(comp);
+      return !isPublished && isEvaluated;
+    }).length;
+  }, [safeCompetitions, safeResults, safeRegistrations]);
+
+  // Performance Points calculator
+  const calculatePerformancePoints = (
+    score: number,
+    type: 'Individual' | 'Group',
+    teamSize: number = 4
+  ): { grade: string; points: number } => {
+    const s = Math.round(score);
+    const config = festStore.getPerformancePointConfig();
+    const rules = config?.rules || [];
+
+    let matchedRule = rules.find((r) => s >= r.minScore && s <= r.maxScore);
+    if (!matchedRule) {
+      matchedRule = { grade: 'No Grade', minScore: 0, maxScore: 0, individual: 0, group2: 0, group3: 0, group4Plus: 0 };
+    }
+
+    const grade = matchedRule.grade;
+    if (grade === 'No Grade' || (matchedRule.minScore === 0 && matchedRule.maxScore === 0)) {
+      return { grade: 'No Grade', points: 0 };
+    }
+
+    let points = 0;
+    if (type === 'Individual') {
+      points = matchedRule.individual;
+    } else {
+      const size = teamSize || 4;
+      if (size === 2) {
+        points = matchedRule.group2;
+      } else if (size === 3) {
+        points = matchedRule.group3;
+      } else {
+        points = matchedRule.group4Plus;
+      }
+    }
+
+    return { grade, points };
+  };
+
+  // Helper to extract effective competition result (whether published or pending evaluation)
+  const getEffectiveCompetitionResult = (comp: Competition) => {
+    const publishedResult = safeResults.find((r) => r.competitionId === comp.id);
+    const p1 = comp.points1st || 10;
+    const p2 = comp.points2nd || 7;
+    const p3 = comp.points3rd || 5;
+
+    if (publishedResult) {
+      const winners = festStore.getResultWinners(publishedResult);
+      const groupPointSummary: Record<string, { groupName: string; points: number }> = {};
+
+      if (publishedResult.useDetailedPoints && publishedResult.participantPointsMap) {
+        Object.entries(publishedResult.participantPointsMap).forEach(([regId, rawVal]) => {
+          const val = rawVal as { totalPoints: number; grade?: string };
+          const reg = safeRegistrations.find((r) => r.id === regId);
+          const grp = reg ? safeGroups.find((g) => g.id === reg.groupId) : undefined;
+          const gName = grp?.name || reg?.groupName || 'Team';
+          if (!groupPointSummary[gName]) {
+            groupPointSummary[gName] = { groupName: gName, points: 0 };
+          }
+          groupPointSummary[gName].points += val.totalPoints;
+        });
+      } else {
+        winners.first.forEach((w) => {
+          const gName = w.groupName || 'Team';
+          if (!groupPointSummary[gName]) groupPointSummary[gName] = { groupName: gName, points: 0 };
+          groupPointSummary[gName].points += p1;
+        });
+        winners.second.forEach((w) => {
+          const gName = w.groupName || 'Team';
+          if (!groupPointSummary[gName]) groupPointSummary[gName] = { groupName: gName, points: 0 };
+          groupPointSummary[gName].points += p2;
+        });
+        winners.third.forEach((w) => {
+          const gName = w.groupName || 'Team';
+          if (!groupPointSummary[gName]) groupPointSummary[gName] = { groupName: gName, points: 0 };
+          groupPointSummary[gName].points += p3;
+        });
+      }
+
+      return {
+        isPublished: true,
+        publishedResult,
+        winners,
+        participantPointsMap: publishedResult.participantPointsMap,
+        useDetailedPoints: publishedResult.useDetailedPoints,
+        groupPointSummary,
+      };
+    }
+
+    // Pending Result: derive winners from evaluated registrations
+    const compRegs = safeRegistrations.filter((r) => r.competitionId === comp.id);
+    const evaluatedRegs = compRegs.filter(
+      (r) =>
+        r.isReported === true ||
+        (r.mark !== undefined && r.mark !== null && String(r.mark).trim() !== '') ||
+        (r.judgeRank !== undefined && r.judgeRank !== null)
+    );
+
+    const rank1Regs = evaluatedRegs.filter((r) => r.judgeRank === 1);
+    const rank2Regs = evaluatedRegs.filter((r) => r.judgeRank === 2);
+    const rank3Regs = evaluatedRegs.filter((r) => r.judgeRank === 3);
+
+    let p1List: string[] = [];
+    let p2List: string[] = [];
+    let p3List: string[] = [];
+
+    // Prioritize explicit judge ranks if set
+    if (rank1Regs.length > 0) {
+      p1List = rank1Regs.map((r) => r.id);
+    }
+    if (rank2Regs.length > 0) {
+      p2List = rank2Regs.map((r) => r.id);
+    }
+    if (rank3Regs.length > 0) {
+      p3List = rank3Regs.map((r) => r.id);
+    }
+
+    // Fill missing podium positions by highest marks
+    const assignedIds = new Set([...p1List, ...p2List, ...p3List]);
+    const scoredRegs = evaluatedRegs
+      .filter((r) => !assignedIds.has(r.id) && r.mark !== undefined && r.mark !== null && String(r.mark).trim() !== '')
+      .map((r) => ({ ...r, numMark: Number(r.mark) || 0 }))
+      .sort((a, b) => b.numMark - a.numMark);
+
+    if (scoredRegs.length > 0) {
+      const uniqueScores = Array.from(new Set<number>(scoredRegs.map((s) => s.numMark))).sort(
+        (a, b) => b - a
+      );
+      let sIdx = 0;
+      if (p1List.length === 0 && sIdx < uniqueScores.length) {
+        const topScore = uniqueScores[sIdx++];
+        p1List = scoredRegs.filter((s) => s.numMark === topScore).map((s) => s.id);
+      }
+      if (p2List.length === 0 && sIdx < uniqueScores.length) {
+        const topScore = uniqueScores[sIdx++];
+        p2List = scoredRegs.filter((s) => s.numMark === topScore).map((s) => s.id);
+      }
+      if (p3List.length === 0 && sIdx < uniqueScores.length) {
+        const topScore = uniqueScores[sIdx++];
+        p3List = scoredRegs.filter((s) => s.numMark === topScore).map((s) => s.id);
+      }
+    }
+
+    const buildWinner = (regId: string): WinnerDetail | null => {
+      const reg = compRegs.find((r) => r.id === regId);
+      if (!reg) return null;
+      const finalName = festStore.getParticipantFullName(reg.participantName, reg.id);
+      return {
+        regId: reg.id,
+        participantName: finalName,
+        groupId: reg.groupId || '',
+        groupName: reg.groupName || '',
+        codeLetter: reg.codeLetter,
+        photoUrl: festStore.getParticipantPhotoUrl(finalName, reg.id),
+        mark: reg.mark,
+        score: reg.mark ? Number(reg.mark) : undefined,
+      };
+    };
+
+    const winners = {
+      first: p1List.map(buildWinner).filter(Boolean) as WinnerDetail[],
+      second: p2List.map(buildWinner).filter(Boolean) as WinnerDetail[],
+      third: p3List.map(buildWinner).filter(Boolean) as WinnerDetail[],
+    };
+
+    const participantPointsMap: Record<
+      string,
+      {
+        competitionPoints: number;
+        performancePoints: number;
+        totalPoints: number;
+        grade: string;
+        score: number;
+      }
+    > = {};
+
+    evaluatedRegs.forEach((reg) => {
+      const score = Number(reg.mark) || 0;
+      const { grade, points: performancePoints } = calculatePerformancePoints(
+        score,
+        comp.type || 'Individual',
+        comp.teamSize || 4
+      );
+
+      let competitionPoints = 0;
+      if (p1List.includes(reg.id)) {
+        competitionPoints = p1;
+      } else if (p2List.includes(reg.id)) {
+        competitionPoints = p2;
+      } else if (p3List.includes(reg.id)) {
+        competitionPoints = p3;
+      }
+
+      participantPointsMap[reg.id] = {
+        competitionPoints,
+        performancePoints,
+        totalPoints: competitionPoints + performancePoints,
+        grade: grade !== 'No Grade' ? grade : '',
+        score,
+      };
+    });
+
+    const groupPointSummary: Record<string, { groupName: string; points: number }> = {};
+    if (Object.keys(participantPointsMap).length > 0) {
+      Object.entries(participantPointsMap).forEach(([regId, val]) => {
+        const reg = safeRegistrations.find((r) => r.id === regId);
+        const grp = reg ? safeGroups.find((g) => g.id === reg.groupId) : undefined;
+        const gName = grp?.name || reg?.groupName || 'Team';
+        if (!groupPointSummary[gName]) {
+          groupPointSummary[gName] = { groupName: gName, points: 0 };
+        }
+        groupPointSummary[gName].points += val.totalPoints;
+      });
+    } else {
+      winners.first.forEach((w) => {
+        const gName = w.groupName || 'Team';
+        if (!groupPointSummary[gName]) groupPointSummary[gName] = { groupName: gName, points: 0 };
+        groupPointSummary[gName].points += p1;
+      });
+      winners.second.forEach((w) => {
+        const gName = w.groupName || 'Team';
+        if (!groupPointSummary[gName]) groupPointSummary[gName] = { groupName: gName, points: 0 };
+        groupPointSummary[gName].points += p2;
+      });
+      winners.third.forEach((w) => {
+        const gName = w.groupName || 'Team';
+        if (!groupPointSummary[gName]) groupPointSummary[gName] = { groupName: gName, points: 0 };
+        groupPointSummary[gName].points += p3;
+      });
+    }
+
+    return {
+      isPublished: false,
+      publishedResult: undefined,
+      winners,
+      participantPointsMap,
+      useDetailedPoints: true,
+      groupPointSummary,
+    };
+  };
 
   // Available categories among available competitions
   const availableCategories = useMemo(() => {
@@ -230,49 +520,44 @@ export const PrintResultsReportModal: React.FC<PrintResultsReportModalProps> = (
 
         if (matchesComp) return true;
 
-        const res = safeResults.find((r) => r.competitionId === comp.id);
-        if (res) {
-          const { first, second, third } = festStore.getResultWinners(res);
-          const allWinners = [...first, ...second, ...third];
-          const matchesWinner = allWinners.some(
-            (w) =>
-              (w.participantName && w.participantName.toLowerCase().includes(term)) ||
-              (w.groupName && w.groupName.toLowerCase().includes(term)) ||
-              (w.codeLetter && w.codeLetter.toLowerCase().includes(term))
-          );
-          if (matchesWinner) return true;
-        }
-
-        return false;
+        const eff = getEffectiveCompetitionResult(comp);
+        const allWinners = [...eff.winners.first, ...eff.winners.second, ...eff.winners.third];
+        const matchesWinner = allWinners.some(
+          (w) =>
+            (w.participantName && w.participantName.toLowerCase().includes(term)) ||
+            (w.groupName && w.groupName.toLowerCase().includes(term)) ||
+            (w.codeLetter && w.codeLetter.toLowerCase().includes(term))
+        );
+        return matchesWinner;
       });
     }
 
     return comps;
-  }, [availableCompetitions, isAllCompetitions, selectedCompIds, reportSearchQuery, safeResults]);
+  }, [availableCompetitions, isAllCompetitions, selectedCompIds, reportSearchQuery, safeResults, safeRegistrations]);
 
   // Stats calculation
   const reportStats = useMemo(() => {
-    let publishedCount = 0;
+    let pubCount = 0;
+    let pendCount = 0;
     let winnersCount = 0;
-    const compIds = new Set(targetCompetitions.map((c) => c.id));
 
     targetCompetitions.forEach((c) => {
-      const res = safeResults.find((r) => r.competitionId === c.id);
-      if (res || c.isPublishedResult) {
-        publishedCount++;
+      const eff = getEffectiveCompetitionResult(c);
+      if (eff.isPublished) {
+        pubCount++;
+      } else {
+        pendCount++;
       }
-      if (res) {
-        const { first, second, third } = festStore.getResultWinners(res);
-        winnersCount += first.length + second.length + third.length;
-      }
+      winnersCount += eff.winners.first.length + eff.winners.second.length + eff.winners.third.length;
     });
 
     return {
       totalCompetitions: targetCompetitions.length,
-      publishedCount,
+      publishedCount: pubCount,
+      pendingCount: pendCount,
       winnersCount,
     };
-  }, [targetCompetitions, safeResults]);
+  }, [targetCompetitions, safeResults, safeRegistrations]);
 
   // Direct PDF Download with jsPDF and html-to-image
   const handleDownloadPdf = async () => {
@@ -496,10 +781,10 @@ export const PrintResultsReportModal: React.FC<PrintResultsReportModalProps> = (
 
         {/* CONTROLS & FILTER BAR */}
         <div className="p-3.5 sm:p-4 bg-[#151728]/80 border-b border-[#292d4a] space-y-3 shrink-0">
-          {/* TOP ROW: Search + Category Pills */}
-          <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+          {/* TOP ROW: Search + Status Tabs + Category Pills */}
+          <div className="flex flex-col xl:flex-row items-stretch xl:items-center justify-between gap-3">
             {/* Search across result fields */}
-            <div className="relative flex-1">
+            <div className="relative flex-1 min-w-[240px]">
               <Search className="w-4 h-4 text-amber-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
                 type="text"
@@ -518,6 +803,57 @@ export const PrintResultsReportModal: React.FC<PrintResultsReportModalProps> = (
                   <X className="w-3.5 h-3.5" />
                 </button>
               )}
+            </div>
+
+            {/* Status Filter Tabs (All / Published / Pending) */}
+            <div className="flex items-center gap-1 bg-[#121422] p-1 rounded-xl border border-[#292d4a] shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  setStatusFilter('All');
+                  setIsAllCompetitions(true);
+                }}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                  statusFilter === 'All'
+                    ? 'bg-purple-600 text-white shadow-md'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <Layers className="w-3.5 h-3.5" />
+                <span>All ({evaluatedCount})</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setStatusFilter('Published');
+                  setIsAllCompetitions(true);
+                }}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                  statusFilter === 'Published'
+                    ? 'bg-emerald-600 text-white shadow-md'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <CheckCircle className="w-3.5 h-3.5" />
+                <span>Published ({publishedCount})</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setStatusFilter('Pending');
+                  setIsAllCompetitions(true);
+                }}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                  statusFilter === 'Pending'
+                    ? 'bg-amber-600 text-white shadow-md'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <Clock className="w-3.5 h-3.5" />
+                <span>⏳ Pending Publish ({pendingCount})</span>
+              </button>
             </div>
 
             {/* Category Filter Pills */}
@@ -693,7 +1029,7 @@ export const PrintResultsReportModal: React.FC<PrintResultsReportModalProps> = (
                                   {hasPublishedRes ? (
                                     <span className="text-emerald-400 font-bold">• Published</span>
                                   ) : (
-                                    <span className="text-slate-400">• Evaluated</span>
+                                    <span className="text-amber-400 font-bold">• ⏳ Pending Publish</span>
                                   )}
                                 </div>
                               </div>
@@ -811,45 +1147,16 @@ export const PrintResultsReportModal: React.FC<PrintResultsReportModalProps> = (
               </div>
             ) : (
               targetCompetitions.map((comp, pageIndex) => {
-                const publishedResult = safeResults.find((r) => r.competitionId === comp.id);
-                const winners = publishedResult
-                  ? festStore.getResultWinners(publishedResult)
-                  : { first: [], second: [], third: [] };
+                const eff = getEffectiveCompetitionResult(comp);
+                const winners = eff.winners;
+                const isPublished = eff.isPublished;
+                const participantPointsMap = eff.participantPointsMap;
+                const useDetailedPoints = eff.useDetailedPoints;
+                const groupPointSummary = eff.groupPointSummary;
 
                 const p1 = comp.points1st || 10;
                 const p2 = comp.points2nd || 7;
                 const p3 = comp.points3rd || 5;
-
-                // Group points summary for this competition
-                const groupPointSummary: Record<string, { groupName: string; points: number }> = {};
-                if (publishedResult?.useDetailedPoints && publishedResult.participantPointsMap) {
-                  Object.entries(publishedResult.participantPointsMap).forEach(([regId, rawVal]) => {
-                    const val = rawVal as { totalPoints: number; grade?: string };
-                    const reg = safeRegistrations.find((r) => r.id === regId);
-                    const grp = reg ? safeGroups.find((g) => g.id === reg.groupId) : undefined;
-                    const gName = grp?.name || reg?.groupName || 'Team';
-                    if (!groupPointSummary[gName]) {
-                      groupPointSummary[gName] = { groupName: gName, points: 0 };
-                    }
-                    groupPointSummary[gName].points += val.totalPoints;
-                  });
-                } else {
-                  winners.first.forEach((w) => {
-                    const gName = w.groupName || 'Team';
-                    if (!groupPointSummary[gName]) groupPointSummary[gName] = { groupName: gName, points: 0 };
-                    groupPointSummary[gName].points += p1;
-                  });
-                  winners.second.forEach((w) => {
-                    const gName = w.groupName || 'Team';
-                    if (!groupPointSummary[gName]) groupPointSummary[gName] = { groupName: gName, points: 0 };
-                    groupPointSummary[gName].points += p2;
-                  });
-                  winners.third.forEach((w) => {
-                    const gName = w.groupName || 'Team';
-                    if (!groupPointSummary[gName]) groupPointSummary[gName] = { groupName: gName, points: 0 };
-                    groupPointSummary[gName].points += p3;
-                  });
-                }
 
                 return (
                   <div
@@ -874,7 +1181,7 @@ export const PrintResultsReportModal: React.FC<PrintResultsReportModalProps> = (
                         rightElement={
                           <div className="text-right">
                             <span className="text-[10px] font-mono font-bold text-slate-700 uppercase block">
-                              OFFICIAL RESULT BULLETIN
+                              {isPublished ? 'OFFICIAL RESULT BULLETIN' : 'PROVISIONAL RESULT BULLETIN (PENDING)'}
                             </span>
                             <span className="text-[9px] font-mono text-slate-500">
                               Date: {new Date().toLocaleDateString('en-GB')}
@@ -892,6 +1199,15 @@ export const PrintResultsReportModal: React.FC<PrintResultsReportModalProps> = (
                           <span className="text-[15px] font-black px-2.5 py-0.5 rounded bg-purple-100 text-purple-900 border border-purple-300 uppercase">
                             {comp.category}
                           </span>
+                          {isPublished ? (
+                            <span className="text-[10px] font-black px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300 uppercase">
+                              ✓ Published
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-black px-2 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300 uppercase">
+                              ⏳ Pending Publish (Evaluated)
+                            </span>
+                          )}
                         </div>
                       </div>
 
@@ -901,7 +1217,7 @@ export const PrintResultsReportModal: React.FC<PrintResultsReportModalProps> = (
                         winners.second.length === 0 &&
                         winners.third.length === 0 ? (
                           <div className="p-4 bg-slate-50 border border-dashed border-slate-300 rounded text-center text-xs text-slate-500 italic">
-                            Results pending publication for this competition.
+                            No evaluated marks or winners recorded yet for this competition.
                           </div>
                         ) : (
                           <div className="border border-slate-900 rounded overflow-hidden">
@@ -924,7 +1240,7 @@ export const PrintResultsReportModal: React.FC<PrintResultsReportModalProps> = (
                                 {/* FIRST PLACE */}
                                 {winners.first.map((w, idx) => {
                                   const reg = safeRegistrations.find((r) => r.id === w.regId);
-                                  const ptMap = publishedResult?.participantPointsMap?.[w.regId];
+                                  const ptMap = participantPointsMap?.[w.regId];
                                   const pts = ptMap ? ptMap.totalPoints : p1;
                                   const grade = ptMap?.grade || (reg?.mark && Number(reg.mark) >= 80 ? 'A' : '');
 
@@ -972,7 +1288,7 @@ export const PrintResultsReportModal: React.FC<PrintResultsReportModalProps> = (
                                 {/* SECOND PLACE */}
                                 {winners.second.map((w, idx) => {
                                   const reg = safeRegistrations.find((r) => r.id === w.regId);
-                                  const ptMap = publishedResult?.participantPointsMap?.[w.regId];
+                                  const ptMap = participantPointsMap?.[w.regId];
                                   const pts = ptMap ? ptMap.totalPoints : p2;
                                   const grade = ptMap?.grade || (reg?.mark && Number(reg.mark) >= 80 ? 'A' : '');
 
@@ -1020,7 +1336,7 @@ export const PrintResultsReportModal: React.FC<PrintResultsReportModalProps> = (
                                 {/* THIRD PLACE */}
                                 {winners.third.map((w, idx) => {
                                   const reg = safeRegistrations.find((r) => r.id === w.regId);
-                                  const ptMap = publishedResult?.participantPointsMap?.[w.regId];
+                                  const ptMap = participantPointsMap?.[w.regId];
                                   const pts = ptMap ? ptMap.totalPoints : p3;
                                   const grade = ptMap?.grade || (reg?.mark && Number(reg.mark) >= 80 ? 'A' : '');
 
@@ -1071,8 +1387,8 @@ export const PrintResultsReportModal: React.FC<PrintResultsReportModalProps> = (
                       </div>
 
                       {/* 4. OTHER GRADED PARTICIPANTS (if detailed points with performance grade exist) */}
-                      {publishedResult?.useDetailedPoints &&
-                        publishedResult?.participantPointsMap &&
+                      {useDetailedPoints &&
+                        participantPointsMap &&
                         (() => {
                           const topWinnerRegIds = new Set([
                             ...winners.first.map((w) => w.regId),
@@ -1080,7 +1396,7 @@ export const PrintResultsReportModal: React.FC<PrintResultsReportModalProps> = (
                             ...winners.third.map((w) => w.regId),
                           ]);
 
-                          const otherGradedRegs = Object.entries(publishedResult.participantPointsMap)
+                          const otherGradedRegs = Object.entries(participantPointsMap)
                             .map(([regId, rawVal]) => {
                               const val = rawVal as { totalPoints: number; grade?: string; score?: number };
                               const reg = safeRegistrations.find((r) => r.id === regId);
@@ -1108,23 +1424,35 @@ export const PrintResultsReportModal: React.FC<PrintResultsReportModalProps> = (
                                     </tr>
                                   </thead>
                                   <tbody className="divide-y divide-slate-200">
-                                    {otherGradedRegs.map(({ regId, val, reg }) => (
-                                      <tr key={regId} className="hover:bg-slate-50">
-                                        <td className="py-1.5 px-3 font-semibold text-slate-900">
-                                          {reg?.participantName || 'Participant'}
-                                        </td>
-                                        <td className="py-1.5 px-3 font-mono text-slate-600 text-[10px]">
-                                          {reg?.codeLetter || reg?.participantUserId || '-'}
-                                        </td>
-                                        <td className="py-1.5 px-3 text-slate-700">{reg?.groupName || '-'}</td>
-                                        <td className="py-1.5 px-2 text-center font-bold text-purple-800">
-                                          {val.grade || '-'}
-                                        </td>
-                                        <td className="py-1.5 px-3 text-right font-bold text-slate-800">
-                                          +{val.totalPoints} pts
-                                        </td>
-                                      </tr>
-                                    ))}
+                                    {otherGradedRegs.map(({ regId, val, reg }) => {
+                                      const pName = reg ? festStore.getParticipantFullName(reg.participantName, reg.id) : 'Participant';
+                                      const gName = reg?.groupName || 'Team';
+                                      const cLetter = reg?.codeLetter || reg?.participantUserId || '-';
+
+                                      return (
+                                        <tr key={regId} className="hover:bg-slate-50">
+                                          <td className="py-1.5 px-3 font-semibold text-slate-900">
+                                            {pName}
+                                          </td>
+                                          <td className="py-1.5 px-3 text-slate-600 font-mono text-[10px]">
+                                            {cLetter}
+                                          </td>
+                                          <td className="py-1.5 px-3 text-slate-700">{gName}</td>
+                                          <td className="py-1.5 px-2 text-center">
+                                            {val.grade ? (
+                                              <span className="px-1.5 py-0.5 rounded bg-purple-50 text-purple-800 font-black text-[10px] border border-purple-200">
+                                                {val.grade}
+                                              </span>
+                                            ) : (
+                                              '-'
+                                            )}
+                                          </td>
+                                          <td className="py-1.5 px-3 text-right font-bold text-amber-700">
+                                            +{val.totalPoints} pts
+                                          </td>
+                                        </tr>
+                                      );
+                                    })}
                                   </tbody>
                                 </table>
                               </div>
