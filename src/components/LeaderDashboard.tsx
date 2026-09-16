@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { UserProfile, Competition, Registration, CategoryType, Group } from '../types';
 import { festStore, formatCompetitionName } from '../lib/store';
-import { Users, UserPlus, Trophy, CheckCircle2, AlertCircle, Key, Calendar, ShieldCheck, Trash2, Search, Lock, ChevronDown, Filter, X, Pencil, CheckSquare, Square, CheckCheck, Check } from 'lucide-react';
+import { Users, UserPlus, Trophy, CheckCircle2, AlertCircle, Key, Calendar, ShieldCheck, Trash2, Search, Lock, ChevronDown, Filter, X, Pencil, CheckSquare, Square, CheckCheck, Check, Download, FileJson } from 'lucide-react';
 import { ParticipantAvatar } from './ParticipantAvatar';
 
 interface LeaderDashboardProps {
@@ -1424,11 +1424,33 @@ export const LeaderDashboard: React.FC<LeaderDashboardProps> = ({
           {/* Current Group Enrollments Table */}
           <div className="pt-6 border-t border-[#292d4a] space-y-3">
             <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2.5">
                 <h3 className="text-base font-extrabold text-white">Current Group Enrollments</h3>
                 <span className="text-[11px] px-2 py-0.5 rounded-full bg-[#181b30] border border-[#292d4a] text-purple-300 font-mono font-bold">
                   {registrations.filter(r => r.groupId === myGroup.id).length}
                 </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const myRegs = registrations.filter(r => r.groupId === myGroup.id);
+                    const jsonStr = festStore.exportRegistrationsJSON(myRegs);
+                    const dateStr = new Date().toISOString().split('T')[0];
+                    const blob = new Blob([jsonStr], { type: 'application/json' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `${(myGroup.name || 'group').toLowerCase().replace(/\s+/g, '_')}_registrations_${dateStr}.json`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                  }}
+                  title="Download group registrations as JSON"
+                  className="px-2.5 py-1 rounded-lg bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 hover:text-white border border-purple-500/30 text-[11px] font-bold flex items-center gap-1.5 transition-all cursor-pointer"
+                >
+                  <Download className="w-3 h-3 text-purple-400" />
+                  <span>Export JSON</span>
+                </button>
               </div>
               
               {/* Search & Competition Filter Controls */}

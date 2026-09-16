@@ -15,8 +15,11 @@ import {
   Filter,
   Layers,
   Sparkles,
-  AlertTriangle
+  AlertTriangle,
+  Download,
+  Upload
 } from 'lucide-react';
+import { JudgeMarksJsonModal } from './JudgeMarksJsonModal';
 
 interface JudgeDashboardProps {
   currentUser: UserProfile;
@@ -42,6 +45,8 @@ export const JudgeDashboard: React.FC<JudgeDashboardProps> = ({
   const [marksState, setMarksState] = useState<{ [regId: string]: string }>({});
   const [judgeRanksState, setJudgeRanksState] = useState<{ [regId: string]: number | undefined }>({});
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string>('');
+  const [showMarksJsonModal, setShowMarksJsonModal] = useState(false);
+  const [marksJsonModalTab, setMarksJsonModalTab] = useState<'download' | 'upload'>('download');
   const [calculateWithPerformancePoints, setCalculateWithPerformancePoints] = useState<boolean>(() =>
     festStore.getCalculateWithPerformancePoints()
   );
@@ -241,15 +246,43 @@ export const JudgeDashboard: React.FC<JudgeDashboardProps> = ({
                   </div>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={handleSaveMarks}
-                  disabled={reportedCandidates.length === 0}
-                  className="px-5 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 border border-emerald-400 shadow-lg shadow-emerald-600/30 transition-all active:scale-95 cursor-pointer shrink-0"
-                >
-                  <Save className="w-4 h-4" />
-                  <span>Save Marks</span>
-                </button>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMarksJsonModalTab('download');
+                      setShowMarksJsonModal(true);
+                    }}
+                    className="px-3.5 py-2.5 rounded-2xl bg-[#121424] hover:bg-[#1f233d] text-emerald-300 hover:text-white border border-emerald-500/40 font-bold text-xs flex items-center justify-center gap-1.5 shadow-md transition-all active:scale-95 cursor-pointer shrink-0"
+                    title="Export Scored Marks as JSON file"
+                  >
+                    <Download className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Export JSON</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMarksJsonModalTab('upload');
+                      setShowMarksJsonModal(true);
+                    }}
+                    className="px-3.5 py-2.5 rounded-2xl bg-[#121424] hover:bg-[#1f233d] text-teal-300 hover:text-white border border-teal-500/40 font-bold text-xs flex items-center justify-center gap-1.5 shadow-md transition-all active:scale-95 cursor-pointer shrink-0"
+                    title="Upload Scored Marks from JSON file"
+                  >
+                    <Upload className="w-3.5 h-3.5 text-teal-400" />
+                    <span>Upload JSON</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleSaveMarks}
+                    disabled={reportedCandidates.length === 0}
+                    className="px-5 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 border border-emerald-400 shadow-lg shadow-emerald-600/30 transition-all active:scale-95 cursor-pointer shrink-0"
+                  >
+                    <Save className="w-4 h-4" />
+                    <span>Save Marks</span>
+                  </button>
+                </div>
               </div>
 
               {saveSuccessMsg && (
@@ -528,6 +561,32 @@ export const JudgeDashboard: React.FC<JudgeDashboardProps> = ({
           </div>
         </div>
       )}
+
+      {/* JUDGE MARKS JSON MODAL (UPLOAD & DOWNLOAD) */}
+      <JudgeMarksJsonModal
+        isOpen={showMarksJsonModal}
+        onClose={() => setShowMarksJsonModal(false)}
+        competitions={competitions}
+        registrations={registrations}
+        defaultTab={marksJsonModalTab}
+        selectedCompFilter={selectedCompId || 'All'}
+        onSuccess={(msg) => {
+          setSaveSuccessMsg(msg);
+          setTimeout(() => setSaveSuccessMsg(''), 5000);
+          // Sync local marks state with updated store
+          const currentRegs = festStore.getRegistrations();
+          const newMarks: { [regId: string]: string } = {};
+          const newRanks: { [regId: string]: number | undefined } = {};
+          currentRegs.forEach(r => {
+            if (r.competitionId === selectedCompId) {
+              if (r.mark) newMarks[r.id] = r.mark;
+              if (r.judgeRank) newRanks[r.id] = r.judgeRank;
+            }
+          });
+          setMarksState(prev => ({ ...prev, ...newMarks }));
+          setJudgeRanksState(prev => ({ ...prev, ...newRanks }));
+        }}
+      />
 
     </div>
   );

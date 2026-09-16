@@ -2,8 +2,9 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Group, Competition, UserProfile, Registration, Result, LeaderboardEntry, CategoryType, CompCategory, FestNotification, AdminTabType, PerformancePointConfig, SocialLinksConfig } from '../types';
 import { festStore, formatCompetitionName, formatStageName } from '../lib/store';
 import { FONT_OPTIONS, applyBrandingToDocument } from '../lib/branding';
-import { Shield, Plus, Award, Trophy, Users, Edit, Edit3, Check, CheckCircle2, AlertCircle, Trash2, KeyRound, X, Tag, Search, Filter, SlidersHorizontal, Sliders, Info, MinusCircle, Minus, MapPin, Layers, Sparkles, Image, Upload, Palette, BookOpen, Music, Clock, Bell, Megaphone, Lock, Unlock, MoreVertical, Eye, EyeOff, Calendar, Settings, LogOut, ClipboardList, Printer, Shuffle, RotateCcw, RefreshCw, FileText, CheckCircle, Wand2, LayoutDashboard, FileSpreadsheet, HardDrive, Download, Database, Scale, Radio, Type, Save, Landmark, MessageSquare, Instagram, Youtube, Facebook, Twitter, Globe, MessageCircle, Share2, QrCode, ChevronDown } from 'lucide-react';
+import { Shield, Plus, Award, Trophy, Users, Edit, Edit3, Check, CheckCircle2, AlertCircle, Trash2, KeyRound, X, Tag, Search, Filter, SlidersHorizontal, Sliders, Info, MinusCircle, Minus, MapPin, Layers, Sparkles, Image, Upload, Palette, BookOpen, Music, Clock, Bell, Megaphone, Lock, Unlock, MoreVertical, Eye, EyeOff, Calendar, Settings, LogOut, ClipboardList, Printer, Shuffle, RotateCcw, RefreshCw, FileText, CheckCircle, Wand2, LayoutDashboard, FileSpreadsheet, HardDrive, Download, Database, Scale, Radio, Type, Save, Landmark, MessageSquare, Instagram, Youtube, Facebook, Twitter, Globe, MessageCircle, Share2, QrCode, ChevronDown, FileJson, Terminal, Code } from 'lucide-react';
 import { compressImage } from '../lib/imageUtils';
+import { SUPABASE_SETUP_SQL } from '../lib/supabase';
 import logoImg from '../assets/images/logo-01.png';
 import { CompetitionScheduleView } from './CompetitionScheduleView';
 import { CreateScheduleModal } from './CreateScheduleModal';
@@ -15,6 +16,11 @@ import { PrintValuationSheetModal } from './PrintValuationSheetModal';
 import { ParticipantAvatar } from './ParticipantAvatar';
 import { ManageLimitsModal } from './ManageLimitsModal';
 import { BulkQrExportModal } from './BulkQrExportModal';
+import { CompetitionJsonModal } from './CompetitionJsonModal';
+import { RegistrationJsonModal } from './RegistrationJsonModal';
+import { ResultJsonModal } from './ResultJsonModal';
+import { JudgeMarksJsonModal } from './JudgeMarksJsonModal';
+import { ReportJsonModal } from './ReportJsonModal';
 import { downloadBulkQrZip, openPrintableQrSheet } from '../lib/qrExport';
 import { formatDayDateWithWeekday, normalizeScheduleString } from '../lib/scheduler';
 
@@ -354,6 +360,23 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [showBulkQrModal, setShowBulkQrModal] = useState(false);
   const [showPrintValuationModal, setShowPrintValuationModal] = useState(false);
   const [isBulkQrLoading, setIsBulkQrLoading] = useState(false);
+  const [isPushingCloud, setIsPushingCloud] = useState(false);
+  const [showSupabaseSqlModal, setShowSupabaseSqlModal] = useState(false);
+  const [copiedSql, setCopiedSql] = useState(false);
+
+  // Granular Competitions & Registrations JSON Modals
+  const [showCompJsonModal, setShowCompJsonModal] = useState(false);
+  const [compJsonModalTab, setCompJsonModalTab] = useState<'download' | 'upload'>('download');
+  const [showRegJsonModal, setShowRegJsonModal] = useState(false);
+  const [regJsonModalTab, setRegJsonModalTab] = useState<'download' | 'upload'>('download');
+
+  // Granular Results, Judge Marks, and Reports JSON Modals
+  const [showResultJsonModal, setShowResultJsonModal] = useState(false);
+  const [resultJsonModalTab, setResultJsonModalTab] = useState<'download' | 'upload'>('download');
+  const [showJudgeMarksJsonModal, setShowJudgeMarksJsonModal] = useState(false);
+  const [judgeMarksJsonModalTab, setJudgeMarksJsonModalTab] = useState<'download' | 'upload'>('download');
+  const [showReportJsonModal, setShowReportJsonModal] = useState(false);
+  const [reportJsonModalTab, setReportJsonModalTab] = useState<'download' | 'upload'>('download');
 
   const downloadFile = (filename: string, content: string, contentType: string) => {
     const blob = new Blob([content], { type: contentType });
@@ -1860,6 +1883,33 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <Printer className="w-4 h-4" />
                 <span>Result PDF</span>
               </button>
+
+              {/* Result JSON Download & Upload Buttons */}
+              <button
+                type="button"
+                onClick={() => {
+                  setResultJsonModalTab('download');
+                  setShowResultJsonModal(true);
+                }}
+                className="px-3.5 py-2 sm:px-4 sm:py-2 bg-[#181b30] hover:bg-[#1f233d] text-amber-300 hover:text-white border border-amber-500/40 rounded-2xl text-xs font-black uppercase tracking-wider flex items-center gap-1.5 shadow-md transition-all shrink-0 cursor-pointer"
+                title="Download Results as JSON file"
+              >
+                <Download className="w-4 h-4 text-amber-400" />
+                <span>Export JSON</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setResultJsonModalTab('upload');
+                  setShowResultJsonModal(true);
+                }}
+                className="px-3.5 py-2 sm:px-4 sm:py-2 bg-[#181b30] hover:bg-[#1f233d] text-emerald-300 hover:text-white border border-emerald-500/40 rounded-2xl text-xs font-black uppercase tracking-wider flex items-center gap-1.5 shadow-md transition-all shrink-0 cursor-pointer"
+                title="Upload Results from JSON file"
+              >
+                <Upload className="w-4 h-4 text-emerald-400" />
+                <span>Import JSON</span>
+              </button>
             </div>
           </div>
 
@@ -2744,6 +2794,33 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <Printer className="w-4 h-4" />
                     <span>Print Report Sheet</span>
                   </button>
+
+                  {/* Reports & Attendance JSON Buttons */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setReportJsonModalTab('download');
+                      setShowReportJsonModal(true);
+                    }}
+                    className="px-3.5 py-2 sm:px-4 sm:py-2 bg-[#181b30] hover:bg-[#1f233d] text-blue-300 hover:text-white border border-blue-500/40 rounded-2xl text-xs font-black uppercase tracking-wider flex items-center gap-1.5 shadow-md transition-all shrink-0 cursor-pointer"
+                    title="Download Attendance & Festival Reports JSON"
+                  >
+                    <Download className="w-4 h-4 text-blue-400" />
+                    <span>Report JSON</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setReportJsonModalTab('upload');
+                      setShowReportJsonModal(true);
+                    }}
+                    className="px-3.5 py-2 sm:px-4 sm:py-2 bg-[#181b30] hover:bg-[#1f233d] text-indigo-300 hover:text-white border border-indigo-500/40 rounded-2xl text-xs font-black uppercase tracking-wider flex items-center gap-1.5 shadow-md transition-all shrink-0 cursor-pointer"
+                    title="Upload candidate check-ins & reporting JSON"
+                  >
+                    <Upload className="w-4 h-4 text-indigo-400" />
+                    <span>Upload Attendance</span>
+                  </button>
                 </div>
               </div>
 
@@ -3374,14 +3451,42 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </p>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => setShowPrintValuationModal(true)}
-                  className="px-5 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-2xl text-xs font-black uppercase tracking-wider flex items-center gap-2 shadow-lg shadow-emerald-600/30 transition-all cursor-pointer shrink-0"
-                >
-                  <Printer className="w-4 h-4" />
-                  <span>Print Valuation Sheet</span>
-                </button>
+                <div className="flex items-center gap-2.5 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => setShowPrintValuationModal(true)}
+                    className="px-5 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-2xl text-xs font-black uppercase tracking-wider flex items-center gap-2 shadow-lg shadow-emerald-600/30 transition-all cursor-pointer shrink-0"
+                  >
+                    <Printer className="w-4 h-4" />
+                    <span>Print Valuation Sheet</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setJudgeMarksJsonModalTab('download');
+                      setShowJudgeMarksJsonModal(true);
+                    }}
+                    className="px-4 py-2.5 bg-[#181b30] hover:bg-[#1f233d] text-emerald-300 hover:text-white border border-emerald-500/40 rounded-2xl text-xs font-black uppercase tracking-wider flex items-center gap-2 shadow-md transition-all cursor-pointer shrink-0"
+                    title="Download Judge Marks as JSON file"
+                  >
+                    <Download className="w-4 h-4 text-emerald-400" />
+                    <span>Marks JSON</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setJudgeMarksJsonModalTab('upload');
+                      setShowJudgeMarksJsonModal(true);
+                    }}
+                    className="px-4 py-2.5 bg-[#181b30] hover:bg-[#1f233d] text-teal-300 hover:text-white border border-teal-500/40 rounded-2xl text-xs font-black uppercase tracking-wider flex items-center gap-2 shadow-md transition-all cursor-pointer shrink-0"
+                    title="Upload Judge Marks from JSON file"
+                  >
+                    <Upload className="w-4 h-4 text-teal-400" />
+                    <span>Upload Marks</span>
+                  </button>
+                </div>
               </div>
 
               {/* Alert Feedback Messages */}
@@ -3633,6 +3738,34 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </h2>
             </div>
             <div className="flex items-center gap-2 shrink-0 self-start sm:self-auto flex-wrap">
+              {/* Competitions JSON Import/Export */}
+              <div className="flex items-center gap-1 bg-[#181b30] p-1 rounded-xl border border-[#292d4a]">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCompJsonModalTab('upload');
+                    setShowCompJsonModal(true);
+                  }}
+                  title="Upload / Import Competitions JSON"
+                  className="px-2.5 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 hover:text-white border border-emerald-500/30 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer"
+                >
+                  <Upload className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Import JSON</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCompJsonModalTab('download');
+                    setShowCompJsonModal(true);
+                  }}
+                  title="Download / Export Competitions JSON"
+                  className="px-2.5 py-1.5 rounded-lg bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 hover:text-white border border-purple-500/30 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5 text-purple-400" />
+                  <span>Export JSON</span>
+                </button>
+              </div>
+
               <button
                 onClick={() => setShowManageLimitsModal(true)}
                 className="px-3.5 py-2 rounded-xl bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 hover:text-white border border-purple-500/30 text-xs font-bold flex items-center gap-1.5 transition-all shrink-0 cursor-pointer"
@@ -4151,8 +4284,34 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {activeTab === 'registrations' && (
         <div className="poster-card p-6 bg-[#151728] rounded-3xl border border-[#292d4a] space-y-4 shadow-xl">
           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-            <div>
+            <div className="flex flex-wrap items-center gap-3">
               <h2 className="text-lg font-extrabold text-white">All Festival Registrations</h2>
+              <div className="flex items-center gap-1 bg-[#181b30] p-1 rounded-xl border border-[#292d4a]">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRegJsonModalTab('upload');
+                    setShowRegJsonModal(true);
+                  }}
+                  title="Upload / Import Registrations JSON"
+                  className="px-2.5 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 hover:text-white border border-emerald-500/30 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer"
+                >
+                  <Upload className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Import JSON</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRegJsonModalTab('download');
+                    setShowRegJsonModal(true);
+                  }}
+                  title="Download / Export Registrations JSON"
+                  className="px-2.5 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 hover:text-white border border-amber-500/30 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Export JSON</span>
+                </button>
+              </div>
             </div>
 
             {/* Filters & Search Bar */}
@@ -5801,17 +5960,26 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </div>
             </div>
 
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="flex items-center gap-2 shrink-0 flex-wrap sm:flex-nowrap">
+              <button
+                type="button"
+                onClick={() => setShowSupabaseSqlModal(true)}
+                className="px-3 py-2 bg-cyan-950/50 hover:bg-cyan-900/50 text-cyan-300 border border-cyan-500/30 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-sm active:scale-95"
+                title="View and copy the Supabase SQL schema & RLS setup script"
+              >
+                <Code className="w-3.5 h-3.5 text-cyan-400" />
+                <span>Supabase SQL</span>
+              </button>
               <button
                 type="button"
                 onClick={async () => {
                   const success = await festStore.forcePullFromCloud();
                   if (success) {
-                    setBackupToastMsg('Successfully refreshed all records from Supabase Realtime Database!');
+                    setBackupToastMsg('All festival data pulled from Supabase! Old local data wiped & updated.');
                   } else {
                     setBackupToastMsg('Refreshed connection with Supabase Database.');
                   }
-                  setTimeout(() => setBackupToastMsg(''), 4000);
+                  setTimeout(() => setBackupToastMsg(''), 5000);
                 }}
                 className="px-3.5 py-2 bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/30 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 shadow-sm active:scale-95"
               >
@@ -5820,15 +5988,31 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </button>
               <button
                 type="button"
+                disabled={isPushingCloud}
                 onClick={async () => {
-                  await festStore.forcePushToCloud();
-                  setBackupToastMsg('Synchronized latest festival state to Supabase Database!');
-                  setTimeout(() => setBackupToastMsg(''), 4000);
+                  try {
+                    setIsPushingCloud(true);
+                    const res = await festStore.forcePushToCloud();
+                    if (res.success) {
+                      setBackupToastMsg(`Force Push Complete! Synced ${res.upserted} items and cleaned ${res.deletedObsolete} obsolete records in Supabase. Real-time reset signal sent to all devices.`);
+                    } else {
+                      setBackupToastMsg(`Force Push Warning: ${res.message}. If Supabase returned an RLS or permission error, check 'Supabase SQL' above.`);
+                    }
+                  } catch (err: any) {
+                    setBackupToastMsg(`Force push failed: ${err?.message || 'Unknown error'}`);
+                  } finally {
+                    setIsPushingCloud(false);
+                    setTimeout(() => setBackupToastMsg(''), 7000);
+                  }
                 }}
-                className="px-3.5 py-2 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 shadow-sm active:scale-95"
+                className={`px-3.5 py-2 ${isPushingCloud ? 'bg-emerald-600/50 cursor-wait opacity-80' : 'bg-emerald-600/20 hover:bg-emerald-600/30 cursor-pointer'} text-emerald-300 border border-emerald-500/30 rounded-xl text-xs font-bold transition-all flex items-center gap-2 shadow-sm active:scale-95`}
               >
-                <Upload className="w-3.5 h-3.5" />
-                <span>Force Push to Cloud</span>
+                {isPushingCloud ? (
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Upload className="w-3.5 h-3.5" />
+                )}
+                <span>{isPushingCloud ? 'Pushing to All Devices...' : 'Force Push to Cloud'}</span>
               </button>
             </div>
           </div>
@@ -5870,7 +6054,86 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </div>
               </div>
 
-              {/* 2. CSV Exports */}
+              {/* 2. Competitions & Registrations Granular JSON Card */}
+              <div className="p-5 bg-[#181b30] rounded-2xl border border-[#292d4a] space-y-4 shadow-md">
+                <div className="flex items-center gap-3 border-b border-[#292d4a] pb-3">
+                  <div className="p-2.5 bg-emerald-600/20 text-emerald-400 rounded-xl border border-emerald-500/30">
+                    <FileJson className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-extrabold text-white">Granular Datasets JSON Tools</h3>
+                    <p className="text-[11px] text-slate-400">Download and upload dedicated JSON files for each festival section</p>
+                  </div>
+                </div>
+
+                <p className="text-xs text-slate-300 leading-relaxed">
+                  Export or import specific festival datasets without affecting your whole database. Ideal for batch uploading events, registering rosters, importing winners, scoring marks, or generating analytical reports.
+                </p>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCompJsonModalTab('download');
+                      setShowCompJsonModal(true);
+                    }}
+                    className="py-2.5 px-3 bg-[#131526] hover:bg-[#1a1d36] text-purple-300 hover:text-white border border-purple-500/30 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer active:scale-95"
+                  >
+                    <FileJson className="w-4 h-4 text-purple-400" />
+                    <span>Competitions</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRegJsonModalTab('download');
+                      setShowRegJsonModal(true);
+                    }}
+                    className="py-2.5 px-3 bg-[#131526] hover:bg-[#1a1d36] text-amber-300 hover:text-white border border-amber-500/30 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer active:scale-95"
+                  >
+                    <FileJson className="w-4 h-4 text-amber-400" />
+                    <span>Registrations</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setResultJsonModalTab('download');
+                      setShowResultJsonModal(true);
+                    }}
+                    className="py-2.5 px-3 bg-[#131526] hover:bg-[#1a1d36] text-yellow-300 hover:text-white border border-yellow-500/30 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer active:scale-95"
+                  >
+                    <Trophy className="w-4 h-4 text-yellow-400" />
+                    <span>Results</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setJudgeMarksJsonModalTab('download');
+                      setShowJudgeMarksJsonModal(true);
+                    }}
+                    className="py-2.5 px-3 bg-[#131526] hover:bg-[#1a1d36] text-emerald-300 hover:text-white border border-emerald-500/30 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer active:scale-95"
+                  >
+                    <Scale className="w-4 h-4 text-emerald-400" />
+                    <span>Judge Marks</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setReportJsonModalTab('download');
+                      setShowReportJsonModal(true);
+                    }}
+                    className="py-2.5 px-3 bg-[#131526] hover:bg-[#1a1d36] text-blue-300 hover:text-white border border-blue-500/30 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer active:scale-95 col-span-2 sm:col-span-1"
+                  >
+                    <FileSpreadsheet className="w-4 h-4 text-blue-400" />
+                    <span>Reports</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* 3. CSV Exports */}
               <div className="p-5 bg-[#181b30] rounded-2xl border border-[#292d4a] space-y-4 shadow-md">
                 <div className="flex items-center justify-between border-b border-[#292d4a] pb-3">
                   <div className="flex items-center gap-3">
@@ -8235,6 +8498,155 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         groups={groups}
         initialCompId={valuationCompId || 'All'}
       />
+
+      {/* COMPETITIONS JSON MODAL (UPLOAD & DOWNLOAD) */}
+      <CompetitionJsonModal
+        isOpen={showCompJsonModal}
+        onClose={() => setShowCompJsonModal(false)}
+        competitions={competitions}
+        defaultTab={compJsonModalTab}
+        onSuccess={(msg) => {
+          setBackupToastMsg(msg);
+          setTimeout(() => setBackupToastMsg(''), 5000);
+          onRefresh();
+        }}
+      />
+
+      {/* REGISTRATIONS JSON MODAL (UPLOAD & DOWNLOAD) */}
+      <RegistrationJsonModal
+        isOpen={showRegJsonModal}
+        onClose={() => setShowRegJsonModal(false)}
+        registrations={registrations}
+        groups={groups}
+        competitions={competitions}
+        defaultTab={regJsonModalTab}
+        selectedGroupFilter={regGroupFilter}
+        selectedCompFilter={regCompFilter}
+        onSuccess={(msg) => {
+          setBackupToastMsg(msg);
+          setTimeout(() => setBackupToastMsg(''), 5000);
+          onRefresh();
+        }}
+      />
+
+      {/* RESULTS JSON MODAL (UPLOAD & DOWNLOAD) */}
+      <ResultJsonModal
+        isOpen={showResultJsonModal}
+        onClose={() => setShowResultJsonModal(false)}
+        results={results}
+        competitions={competitions}
+        defaultTab={resultJsonModalTab}
+        selectedCompFilter="All"
+        onSuccess={(msg) => {
+          setBackupToastMsg(msg);
+          setTimeout(() => setBackupToastMsg(''), 5000);
+          onRefresh();
+        }}
+      />
+
+      {/* JUDGE MARKS JSON MODAL (UPLOAD & DOWNLOAD) */}
+      <JudgeMarksJsonModal
+        isOpen={showJudgeMarksJsonModal}
+        onClose={() => setShowJudgeMarksJsonModal(false)}
+        competitions={competitions}
+        registrations={registrations}
+        defaultTab={judgeMarksJsonModalTab}
+        selectedCompFilter={valuationCompId || 'All'}
+        onSuccess={(msg) => {
+          setBackupToastMsg(msg);
+          setTimeout(() => setBackupToastMsg(''), 5000);
+          onRefresh();
+        }}
+      />
+
+      {/* FESTIVAL & ATTENDANCE REPORT JSON MODAL (UPLOAD & DOWNLOAD) */}
+      <ReportJsonModal
+        isOpen={showReportJsonModal}
+        onClose={() => setShowReportJsonModal(false)}
+        competitions={competitions}
+        registrations={registrations}
+        profiles={festStore.getProfiles()}
+        defaultTab={reportJsonModalTab}
+        selectedCompFilter={reportingCompId || 'All'}
+        onSuccess={(msg) => {
+          setBackupToastMsg(msg);
+          setTimeout(() => setBackupToastMsg(''), 5000);
+          onRefresh();
+        }}
+      />
+
+      {/* SUPABASE BACKEND & SQL SETUP MODAL */}
+      {showSupabaseSqlModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[#131525] border border-cyan-500/30 rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div className="p-5 border-b border-slate-800 flex items-center justify-between bg-[#181b30]">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-cyan-500/20 text-cyan-400 rounded-xl border border-cyan-500/30">
+                  <Terminal className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-white">Supabase SQL Schema & RLS Setup</h3>
+                  <p className="text-xs text-slate-400">Required backend configuration for cross-device synchronization & Force Push</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowSupabaseSqlModal(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4 overflow-y-auto text-xs text-slate-300">
+              <div className="p-3.5 bg-cyan-950/40 border border-cyan-500/30 rounded-xl space-y-2">
+                <p className="font-semibold text-cyan-200">Instructions to execute in your Supabase project:</p>
+                <ol className="list-decimal list-inside space-y-1 text-slate-300">
+                  <li>Open your Supabase Project Dashboard (<a href="https://supabase.com/dashboard" target="_blank" rel="noreferrer" className="text-cyan-400 underline">supabase.com</a>).</li>
+                  <li>Go to <span className="font-semibold text-white">SQL Editor</span> (left sidebar icon with <span className="font-mono text-cyan-300">&gt;_</span>).</li>
+                  <li>Click <span className="font-semibold text-white">New Query</span> and paste the SQL script below.</li>
+                  <li>Click <span className="font-semibold text-emerald-400">Run</span> (or press Ctrl + Enter).</li>
+                </ol>
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  This creates the unified <span className="font-mono text-cyan-300">fest_data</span> table, enables full real-time replication (<span className="font-mono text-cyan-300">REPLICA IDENTITY FULL</span>), and sets the Row Level Security (RLS) policies allowing devices to read, insert, and delete obsolete data during Force Push.
+                </p>
+              </div>
+
+              <div className="relative">
+                <div className="flex items-center justify-between pb-2">
+                  <span className="font-mono text-[11px] text-slate-400">Supabase SQL Query (also saved in project root as schema.sql):</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(SUPABASE_SETUP_SQL);
+                      setCopiedSql(true);
+                      setTimeout(() => setCopiedSql(false), 3000);
+                    }}
+                    className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm active:scale-95 cursor-pointer"
+                  >
+                    {copiedSql ? <Check className="w-3.5 h-3.5" /> : <ClipboardList className="w-3.5 h-3.5" />}
+                    <span>{copiedSql ? 'Copied to Clipboard!' : 'Copy SQL Script'}</span>
+                  </button>
+                </div>
+                <pre className="p-4 bg-[#0d0f1a] border border-slate-800 rounded-xl text-[11px] font-mono text-cyan-300 overflow-x-auto max-h-64 select-all leading-relaxed whitespace-pre">
+                  {SUPABASE_SETUP_SQL}
+                </pre>
+              </div>
+            </div>
+
+            <div className="p-4 border-t border-slate-800 bg-[#181b30] flex items-center justify-between">
+              <span className="text-[11px] text-slate-400">File location: <span className="font-mono text-slate-300 font-bold">/schema.sql</span></span>
+              <button
+                type="button"
+                onClick={() => setShowSupabaseSqlModal(false)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-bold transition-all cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

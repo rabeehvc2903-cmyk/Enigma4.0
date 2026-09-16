@@ -1,4 +1,4 @@
-import { Group, Competition, UserProfile, Registration, Result, LeaderboardEntry, CategoryType, EventPoster, CountdownConfig, BrandingConfig, SocialLinksConfig, CommentItem, CommentSettings, FestNotification, ParticipantIdConfig, PosterTemplateConfig, StageItem, PerformancePointConfig, PerformancePointRule, LimitRulesConfig, CategoryLimitRule, WinnerDetail } from '../types';
+import { Group, Competition, CompType, UserProfile, Registration, Result, LeaderboardEntry, CategoryType, EventPoster, CountdownConfig, BrandingConfig, SocialLinksConfig, CommentItem, CommentSettings, FestNotification, ParticipantIdConfig, PosterTemplateConfig, StageItem, PerformancePointConfig, PerformancePointRule, LimitRulesConfig, CategoryLimitRule, WinnerDetail } from '../types';
 import { 
   DEFAULT_CATEGORIES, 
   DEFAULT_STAGES, 
@@ -179,6 +179,7 @@ class FestStore {
   private syncDebounceTimer: any = null;
   private isPushingToCloud = false;
   private hasPendingPush = false;
+  private lastProcessedPushId: string | null = null;
 
   constructor() {
     if (typeof localStorage !== 'undefined') {
@@ -288,33 +289,60 @@ class FestStore {
 
   /**
    * Replace / hydrate the application state with fresh data from Supabase
+   * Completely removes old local stored data on this device and replaces with new data.
    */
-  public setApplicationState(freshState: any): void {
+  public setApplicationState(freshState: any, pushId?: string): void {
     if (!freshState || typeof freshState !== 'object') return;
+
+    // Avoid redundant re-wipe if this device just sent this exact push
+    if (pushId && this.lastProcessedPushId === pushId) {
+      return;
+    }
+    if (pushId) {
+      this.lastProcessedPushId = pushId;
+    }
+
     this.isInitialCloudSyncResolved = true;
     const hasCloudData = (
       (Array.isArray(freshState.groups) && freshState.groups.length > 0) ||
       (Array.isArray(freshState.competitions) && freshState.competitions.length > 0) ||
       (Array.isArray(freshState.profiles) && freshState.profiles.length > 0) ||
-      (freshState.updatedAt && !this.isDeviceFresh)
+      (freshState.updatedAt && !this.isDeviceFresh) ||
+      Boolean(freshState.forcePushId)
     );
 
     if (hasCloudData) {
-      console.log('Successfully hydrated state from Supabase real-time database.');
+      console.log('Hydrating and replacing all local stored data with authoritative Supabase cloud state.');
       this.hasReceivedCloudData = true;
       this.isDeviceFresh = false;
       this.isSyncingFromCloud = true;
+
+      // CRITICAL: REMOVE OLD LOCAL STORED DATA OF THIS DEVICE COMPLETELY
+      try {
+        localStorage.removeItem(STORE_KEY);
+        LEGACY_KEYS.forEach(k => localStorage.removeItem(k));
+      } catch (storageErr) {
+        console.warn('Error clearing old localStorage:', storageErr);
+      }
+
       this.inMemoryState = {
         ...this.getDefaultData(),
         ...freshState,
         profiles: ensureSystemProfiles(freshState.profiles)
       };
       this.lastSyncedState = JSON.parse(JSON.stringify(this.inMemoryState));
+
+      // Save the fresh replacement state to localStorage
       try {
         localStorage.setItem(STORE_KEY, JSON.stringify(this.inMemoryState));
+        if (freshState.forcePushId || pushId) {
+          localStorage.setItem('fest_last_force_push_id', freshState.forcePushId || pushId);
+        }
       } catch (storageErr) {
         console.warn('LocalStorage limit exceeded while syncing Supabase cloud data.', storageErr);
       }
+
+      this.recalculateGroupPoints(false);
       this.cloudStatus = 'connected';
       this.cloudError = null;
       this.isSyncingFromCloud = false;
@@ -486,8 +514,8 @@ class FestStore {
       }
 
       this.unsubscribeSnapshot = await startSupabaseSync(
-        (freshState) => {
-          this.setApplicationState(freshState);
+        (freshState, pushId) => {
+          this.setApplicationState(freshState, pushId);
         },
         (type, data) => {
           this.applyRealtimeUpdate(type, data);
@@ -507,23 +535,50 @@ class FestStore {
     }
   }
 
-  public async forcePushToCloud(): Promise<void> {
-    if (!isSupabaseConfigured) return;
+  public async forcePushToCloud(): Promise<{ success: boolean; deletedObsolete: number; upserted: number; message: string }> {
+    if (!isSupabaseConfigured) {
+      return { success: false, deletedObsolete: 0, upserted: 0, message: 'Supabase is not configured' };
+    }
     const data = this.getData();
     this.isDeviceFresh = false;
-    data.updatedAt = new Date().toISOString();
+    const nowIso = new Date().toISOString();
+    data.updatedAt = nowIso;
+    const pushId = `force_push_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+    this.lastProcessedPushId = pushId;
+
     try {
       this.cloudStatus = 'initializing';
       this.notify();
-      await pushFullStateToModularCloud(data);
+
+      const result = await pushFullStateToModularCloud(data, pushId);
+
       this.lastSyncedState = JSON.parse(JSON.stringify(data));
-      this.cloudStatus = 'connected';
-      this.cloudError = null;
+      try {
+        localStorage.setItem(STORE_KEY, JSON.stringify(this.inMemoryState));
+        localStorage.setItem('fest_last_force_push_id', pushId);
+      } catch (err) {
+        console.warn('LocalStorage save warning:', err);
+      }
+
+      if (result.success) {
+        this.cloudStatus = 'connected';
+        this.cloudError = null;
+      } else {
+        this.cloudStatus = 'error';
+        this.cloudError = result.message;
+      }
       this.notify();
+      return result;
     } catch (err: any) {
       this.cloudStatus = 'error';
       this.cloudError = err?.message || 'Supabase sync failed';
       this.notify();
+      return {
+        success: false,
+        deletedObsolete: 0,
+        upserted: 0,
+        message: err?.message || 'Supabase sync failed',
+      };
     }
   }
 
@@ -534,6 +589,11 @@ class FestStore {
       this.notify();
       const cloudState = await fetchInitialModularCloudState();
       if (cloudState && typeof cloudState === 'object') {
+        try {
+          localStorage.removeItem(STORE_KEY);
+          LEGACY_KEYS.forEach(k => localStorage.removeItem(k));
+        } catch {}
+
         this.inMemoryState = {
           ...this.getDefaultData(),
           ...cloudState,
@@ -543,6 +603,7 @@ class FestStore {
         try {
           localStorage.setItem(STORE_KEY, JSON.stringify(this.inMemoryState));
         } catch {}
+        this.recalculateGroupPoints(false);
         this.cloudStatus = 'connected';
         this.cloudError = null;
         this.notify();
@@ -3643,6 +3704,919 @@ class FestStore {
     } catch (err: any) {
       return { success: false, message: `Failed to parse backup file: ${err.message || 'Syntax error'}` };
     }
+  }
+
+  // --- COMPETITIONS JSON EXPORT & IMPORT ---
+  public exportCompetitionsJSON(filterList?: Competition[]): string {
+    const list = filterList || this.getCompetitions();
+    const payload = {
+      type: 'competitions_export',
+      version: '1.0',
+      exportedAt: new Date().toISOString(),
+      count: list.length,
+      competitions: list
+    };
+    return JSON.stringify(payload, null, 2);
+  }
+
+  public importCompetitionsJSON(jsonString: string, mode: 'merge' | 'replace' = 'merge'): {
+    success: boolean;
+    message: string;
+    count?: number;
+    errors?: string[];
+  } {
+    try {
+      const parsed = JSON.parse(jsonString);
+      if (!parsed) {
+        return { success: false, message: 'Invalid JSON: Empty or invalid input.' };
+      }
+
+      let rawList: any[] = [];
+      if (Array.isArray(parsed)) {
+        rawList = parsed;
+      } else if (Array.isArray(parsed.competitions)) {
+        rawList = parsed.competitions;
+      } else if (Array.isArray(parsed.data)) {
+        rawList = parsed.data;
+      } else {
+        return { success: false, message: 'Invalid format: Expected a JSON array of competitions or an object with a "competitions" array.' };
+      }
+
+      if (rawList.length === 0) {
+        return { success: false, message: 'No competition records found in JSON.' };
+      }
+
+      const validComps: Competition[] = [];
+      const errors: string[] = [];
+      const currentCats = this.getCategories();
+      const defaultCategory = currentCats[0] || 'Senior';
+
+      rawList.forEach((item, idx) => {
+        if (!item || typeof item !== 'object') {
+          errors.push(`Row ${idx + 1}: item is not an object.`);
+          return;
+        }
+
+        const rawName = typeof item.name === 'string' ? item.name.trim() : '';
+        if (!rawName) {
+          errors.push(`Row ${idx + 1}: missing competition name.`);
+          return;
+        }
+
+        const id = (typeof item.id === 'string' && item.id.trim())
+          ? item.id.trim()
+          : `comp_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+
+        const category = (typeof item.category === 'string' && item.category.trim())
+          ? item.category.trim()
+          : defaultCategory;
+
+        const type: CompType = (typeof item.type === 'string' && (item.type.toLowerCase() === 'group' || item.type.toLowerCase() === 'team')) ? 'Group' : 'Individual';
+        const isStage = typeof item.isStage === 'boolean' ? item.isStage : true;
+        const venue = typeof item.venue === 'string' && item.venue.trim() ? item.venue.trim() : 'Stage 1';
+        const scheduleTime = typeof item.scheduleTime === 'string' ? item.scheduleTime.trim() : '';
+        const timeSpan = Number(item.timeSpan) > 0 ? Number(item.timeSpan) : 30;
+        const maxEntriesPerGroup = Number(item.maxEntriesPerGroup) > 0 ? Number(item.maxEntriesPerGroup) : (type === 'Group' ? 1 : 2);
+        const points1st = Number(item.points1st) >= 0 ? Number(item.points1st) : 10;
+        const points2nd = Number(item.points2nd) >= 0 ? Number(item.points2nd) : 7;
+        const points3rd = Number(item.points3rd) >= 0 ? Number(item.points3rd) : 5;
+        const description = typeof item.description === 'string' ? item.description : '';
+        const status = ['pending', 'running', 'completed'].includes(item.status) ? item.status : 'pending';
+        const reportingStatus = ['open', 'closed'].includes(item.reportingStatus) ? item.reportingStatus : 'open';
+        const teamSize = Number(item.teamSize) > 0 ? Number(item.teamSize) : (type === 'Group' ? 4 : 1);
+
+        validComps.push({
+          id,
+          name: cleanCompetitionBaseName(rawName),
+          category,
+          type,
+          isStage,
+          venue,
+          scheduleTime,
+          timeSpan,
+          maxEntriesPerGroup,
+          points1st,
+          points2nd,
+          points3rd,
+          description,
+          status,
+          reportingStatus,
+          teamSize,
+          isPublishedResult: Boolean(item.isPublishedResult),
+          isRunning: Boolean(item.isRunning),
+          imageUrl: typeof item.imageUrl === 'string' ? item.imageUrl : undefined,
+          imageType: item.imageType || undefined
+        });
+      });
+
+      if (validComps.length === 0) {
+        return {
+          success: false,
+          message: `Failed to import: None of the ${rawList.length} items were valid competitions.`,
+          errors
+        };
+      }
+
+      const data = this.getData();
+
+      // Ensure any new categories from imported competitions exist in the categories list
+      const existingCategories = new Set(data.categories || []);
+      validComps.forEach(c => {
+        if (c.category && !existingCategories.has(c.category)) {
+          data.categories.push(c.category);
+          existingCategories.add(c.category);
+        }
+      });
+
+      // Ensure any new stages exist
+      const existingStages = new Set(this.getStages().map(s => s.toLowerCase()));
+      validComps.forEach(c => {
+        if (c.venue && !existingStages.has(c.venue.toLowerCase())) {
+          this.addStage(c.venue, c.isStage);
+          existingStages.add(c.venue.toLowerCase());
+        }
+      });
+
+      if (mode === 'replace') {
+        data.competitions = validComps;
+      } else {
+        // Merge: match by ID, or if ID doesn't match, by lowercase name + category
+        const compMap = new Map<string, Competition>();
+        (data.competitions || []).forEach(c => compMap.set(c.id, c));
+
+        validComps.forEach(newComp => {
+          if (compMap.has(newComp.id)) {
+            const prev = compMap.get(newComp.id)!;
+            compMap.set(newComp.id, { ...prev, ...newComp });
+          } else {
+            const existingMatch = Array.from(compMap.values()).find(
+              c => c.name.toLowerCase() === newComp.name.toLowerCase() && c.category.toLowerCase() === newComp.category.toLowerCase()
+            );
+            if (existingMatch) {
+              compMap.set(existingMatch.id, { ...existingMatch, ...newComp, id: existingMatch.id });
+            } else {
+              compMap.set(newComp.id, newComp);
+            }
+          }
+        });
+
+        data.competitions = Array.from(compMap.values());
+      }
+
+      this.saveData(data);
+      this.recalculateGroupPoints();
+      this.notify();
+
+      return {
+        success: true,
+        message: mode === 'replace'
+          ? `Successfully replaced all competitions with ${validComps.length} items.`
+          : `Successfully imported and merged ${validComps.length} competitions.`,
+        count: validComps.length,
+        errors: errors.length > 0 ? errors : undefined
+      };
+    } catch (err: any) {
+      return { success: false, message: `JSON parsing error: ${err.message || 'Invalid syntax'}` };
+    }
+  }
+
+  // --- REGISTRATIONS JSON EXPORT & IMPORT ---
+  public exportRegistrationsJSON(filterList?: Registration[]): string {
+    const list = filterList || this.getRegistrations();
+    const payload = {
+      type: 'registrations_export',
+      version: '1.0',
+      exportedAt: new Date().toISOString(),
+      count: list.length,
+      registrations: list
+    };
+    return JSON.stringify(payload, null, 2);
+  }
+
+  public importRegistrationsJSON(jsonString: string, mode: 'merge' | 'replace' = 'merge'): {
+    success: boolean;
+    message: string;
+    count?: number;
+    errors?: string[];
+  } {
+    try {
+      const parsed = JSON.parse(jsonString);
+      if (!parsed) {
+        return { success: false, message: 'Invalid JSON: Empty or invalid input.' };
+      }
+
+      let rawList: any[] = [];
+      if (Array.isArray(parsed)) {
+        rawList = parsed;
+      } else if (Array.isArray(parsed.registrations)) {
+        rawList = parsed.registrations;
+      } else if (Array.isArray(parsed.data)) {
+        rawList = parsed.data;
+      } else {
+        return { success: false, message: 'Invalid format: Expected a JSON array of registrations or an object with a "registrations" array.' };
+      }
+
+      if (rawList.length === 0) {
+        return { success: false, message: 'No registration records found in JSON.' };
+      }
+
+      const data = this.getData();
+      const compById = new Map((data.competitions || []).map(c => [c.id, c]));
+      const compByName = new Map((data.competitions || []).map(c => [c.name.toLowerCase().trim(), c]));
+      const groupById = new Map((data.groups || []).map(g => [g.id, g]));
+      const groupByName = new Map((data.groups || []).map(g => [g.name.toLowerCase().trim(), g]));
+      const profileById = new Map((data.profiles || []).map(p => [p.id, p]));
+      const profileByUserId = new Map((data.profiles || []).map(p => [(p.userId || '').toLowerCase().trim(), p]));
+      const profileByName = new Map((data.profiles || []).map(p => [p.name.toLowerCase().trim(), p]));
+
+      const validRegs: Registration[] = [];
+      const errors: string[] = [];
+
+      rawList.forEach((item, idx) => {
+        if (!item || typeof item !== 'object') {
+          errors.push(`Row ${idx + 1}: item is not an object.`);
+          return;
+        }
+
+        // Resolve competition
+        let comp = item.competitionId ? compById.get(item.competitionId) : undefined;
+        if (!comp && item.competitionName) {
+          comp = compByName.get(String(item.competitionName).toLowerCase().trim());
+        }
+        if (!comp && item.competitionId) {
+          comp = compByName.get(String(item.competitionId).toLowerCase().trim());
+        }
+
+        const compId = comp ? comp.id : (typeof item.competitionId === 'string' && item.competitionId.trim() ? item.competitionId.trim() : '');
+        if (!compId) {
+          errors.push(`Row ${idx + 1}: missing or unrecognized competition.`);
+          return;
+        }
+
+        // Resolve participant & group
+        let profile = item.participantId ? profileById.get(item.participantId) : undefined;
+        if (!profile && item.participantUserId) {
+          profile = profileByUserId.get(String(item.participantUserId).toLowerCase().trim());
+        }
+        if (!profile && item.participantName) {
+          profile = profileByName.get(String(item.participantName).toLowerCase().trim());
+        }
+
+        const partId = profile ? profile.id : (typeof item.participantId === 'string' && item.participantId.trim() ? item.participantId.trim() : `part_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`);
+        const partName = profile ? profile.name : (typeof item.participantName === 'string' && item.participantName.trim() ? item.participantName.trim() : 'Participant');
+        const partUserId = profile ? profile.userId : (typeof item.participantUserId === 'string' && item.participantUserId.trim() ? item.participantUserId.trim() : `ART-2026-${Math.floor(100 + Math.random() * 900)}`);
+
+        // Resolve group
+        let group = (profile && profile.groupId) ? groupById.get(profile.groupId) : undefined;
+        if (!group && item.groupId) group = groupById.get(item.groupId);
+        if (!group && item.groupName) group = groupByName.get(String(item.groupName).toLowerCase().trim());
+        if (!group && item.groupId) group = groupByName.get(String(item.groupId).toLowerCase().trim());
+
+        const groupId = group ? group.id : (typeof item.groupId === 'string' && item.groupId.trim() ? item.groupId.trim() : (data.groups[0]?.id || 'group-1'));
+        const groupName = group ? group.name : (typeof item.groupName === 'string' && item.groupName.trim() ? item.groupName.trim() : (data.groups[0]?.name || 'Group'));
+
+        const regId = (typeof item.id === 'string' && item.id.trim())
+          ? item.id.trim()
+          : `reg_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+
+        const registeredAt = typeof item.registeredAt === 'string' && item.registeredAt.trim()
+          ? item.registeredAt.trim()
+          : new Date().toISOString();
+
+        validRegs.push({
+          id: regId,
+          competitionId: compId,
+          participantId: partId,
+          participantName: partName,
+          participantUserId: partUserId,
+          groupId,
+          groupName,
+          registeredAt,
+          isReported: Boolean(item.isReported),
+          codeLetter: typeof item.codeLetter === 'string' ? item.codeLetter.trim() : undefined,
+          mark: item.mark !== undefined && item.mark !== null ? String(item.mark).trim() : undefined,
+          judgeRank: Number(item.judgeRank) > 0 ? Number(item.judgeRank) : undefined
+        });
+      });
+
+      if (validRegs.length === 0) {
+        return {
+          success: false,
+          message: `Failed to import: None of the ${rawList.length} items were valid registrations.`,
+          errors
+        };
+      }
+
+      if (mode === 'replace') {
+        data.registrations = validRegs;
+      } else {
+        const regMap = new Map<string, Registration>();
+        (data.registrations || []).forEach(r => regMap.set(r.id, r));
+
+        validRegs.forEach(newReg => {
+          if (regMap.has(newReg.id)) {
+            const prev = regMap.get(newReg.id)!;
+            regMap.set(newReg.id, { ...prev, ...newReg });
+          } else {
+            const existingMatch = Array.from(regMap.values()).find(
+              r => r.competitionId === newReg.competitionId &&
+                   (r.participantId === newReg.participantId || r.participantUserId.toLowerCase() === newReg.participantUserId.toLowerCase())
+            );
+            if (existingMatch) {
+              regMap.set(existingMatch.id, { ...existingMatch, ...newReg, id: existingMatch.id });
+            } else {
+              regMap.set(newReg.id, newReg);
+            }
+          }
+        });
+
+        data.registrations = Array.from(regMap.values());
+      }
+
+      this.saveData(data);
+      this.recalculateGroupPoints();
+      this.notify();
+
+      return {
+        success: true,
+        message: mode === 'replace'
+          ? `Successfully replaced all registrations with ${validRegs.length} entries.`
+          : `Successfully imported and merged ${validRegs.length} registrations.`,
+        count: validRegs.length,
+        errors: errors.length > 0 ? errors : undefined
+      };
+    } catch (err: any) {
+      return { success: false, message: `JSON parsing error: ${err.message || 'Invalid syntax'}` };
+    }
+  }
+
+  // ==========================================
+  // RESULTS JSON IMPORT & EXPORT
+  // ==========================================
+  public exportResultsJSON(filterResults?: Result[]): string {
+    const data = this.getData();
+    const list = filterResults || data.results || [];
+    const payload = {
+      version: '1.0',
+      exportedAt: new Date().toISOString(),
+      type: 'festival_results',
+      count: list.length,
+      results: list
+    };
+    return JSON.stringify(payload, null, 2);
+  }
+
+  public importResultsJSON(jsonString: string, mode: 'merge' | 'replace' = 'merge'): {
+    success: boolean;
+    message: string;
+    count?: number;
+    errors?: string[];
+  } {
+    try {
+      const parsed = JSON.parse(jsonString);
+      let rawList: any[] = [];
+
+      if (Array.isArray(parsed)) {
+        rawList = parsed;
+      } else if (parsed && typeof parsed === 'object') {
+        if (Array.isArray(parsed.results)) {
+          rawList = parsed.results;
+        } else if (Array.isArray(parsed.festivalResults)) {
+          rawList = parsed.festivalResults;
+        } else if (Array.isArray(parsed.data)) {
+          rawList = parsed.data;
+        } else {
+          return { success: false, message: 'Invalid JSON format: expected an array of results or an object with a "results" array.' };
+        }
+      }
+
+      if (rawList.length === 0) {
+        return { success: false, message: 'JSON file contains no result items.' };
+      }
+
+      const data = this.getData();
+      const compMap = new Map((data.competitions || []).map(c => [c.id, c]));
+      const compByName = new Map((data.competitions || []).map(c => [c.name.trim().toLowerCase(), c]));
+
+      const validResults: Result[] = [];
+      const errors: string[] = [];
+
+      rawList.forEach((item, idx) => {
+        if (!item || typeof item !== 'object') {
+          errors.push(`Item #${idx + 1} is not a valid object.`);
+          return;
+        }
+
+        // Match competition by ID or Name
+        let comp: Competition | undefined;
+        if (item.competitionId && compMap.has(item.competitionId)) {
+          comp = compMap.get(item.competitionId);
+        } else if (item.competitionName && compByName.has(String(item.competitionName).trim().toLowerCase())) {
+          comp = compByName.get(String(item.competitionName).trim().toLowerCase());
+        }
+
+        if (!comp) {
+          errors.push(`Item #${idx + 1}: Competition "${item.competitionName || item.competitionId || 'Unknown'}" not found.`);
+          return;
+        }
+
+        const id = typeof item.id === 'string' && item.id.trim() ? item.id.trim() : `res-${Date.now()}-${idx}`;
+        const firstPlaceParticipantName = item.firstPlaceParticipantName || (item.firstPlaceWinners && item.firstPlaceWinners[0]?.participantName) || '';
+
+        if (!firstPlaceParticipantName && !item.firstPlaceRegId) {
+          errors.push(`Item #${idx + 1} (${comp.name}): Missing 1st place winner details.`);
+          return;
+        }
+
+        const res: Result = {
+          id,
+          competitionId: comp.id,
+          competitionName: comp.name,
+          firstPlaceRegId: item.firstPlaceRegId || '',
+          firstPlaceParticipantName,
+          firstPlaceGroupId: item.firstPlaceGroupId || '',
+          firstPlaceGroupName: item.firstPlaceGroupName || '',
+          firstPlaceCodeLetter: item.firstPlaceCodeLetter || undefined,
+
+          secondPlaceRegId: item.secondPlaceRegId || undefined,
+          secondPlaceParticipantName: item.secondPlaceParticipantName || (item.secondPlaceWinners && item.secondPlaceWinners[0]?.participantName) || undefined,
+          secondPlaceGroupId: item.secondPlaceGroupId || undefined,
+          secondPlaceGroupName: item.secondPlaceGroupName || undefined,
+          secondPlaceCodeLetter: item.secondPlaceCodeLetter || undefined,
+
+          thirdPlaceRegId: item.thirdPlaceRegId || undefined,
+          thirdPlaceParticipantName: item.thirdPlaceParticipantName || (item.thirdPlaceWinners && item.thirdPlaceWinners[0]?.participantName) || undefined,
+          thirdPlaceGroupId: item.thirdPlaceGroupId || undefined,
+          thirdPlaceGroupName: item.thirdPlaceGroupName || undefined,
+          thirdPlaceCodeLetter: item.thirdPlaceCodeLetter || undefined,
+
+          firstPlaceWinners: Array.isArray(item.firstPlaceWinners) ? item.firstPlaceWinners : undefined,
+          secondPlaceWinners: Array.isArray(item.secondPlaceWinners) ? item.secondPlaceWinners : undefined,
+          thirdPlaceWinners: Array.isArray(item.thirdPlaceWinners) ? item.thirdPlaceWinners : undefined,
+
+          publishedAt: typeof item.publishedAt === 'string' && item.publishedAt.trim() ? item.publishedAt : new Date().toISOString(),
+          useDetailedPoints: typeof item.useDetailedPoints === 'boolean' ? item.useDetailedPoints : undefined,
+          participantPointsMap: item.participantPointsMap && typeof item.participantPointsMap === 'object' ? item.participantPointsMap : undefined
+        };
+
+        validResults.push(res);
+      });
+
+      if (validResults.length === 0) {
+        return {
+          success: false,
+          message: 'No valid results could be imported.',
+          errors: errors.length > 0 ? errors : undefined
+        };
+      }
+
+      if (mode === 'replace') {
+        // Reset all competitions to unpublished
+        data.competitions.forEach(c => {
+          c.isPublishedResult = false;
+        });
+        data.results = validResults;
+      } else {
+        // Merge: overwrite existing result for matching competitionId, or add new
+        const resultMap = new Map<string, Result>();
+        (data.results || []).forEach(r => resultMap.set(r.competitionId, r));
+        validResults.forEach(r => resultMap.set(r.competitionId, r));
+        data.results = Array.from(resultMap.values());
+      }
+
+      // Mark affected competitions as published & completed
+      const publishedCompIds = new Set(data.results.map(r => r.competitionId));
+      data.competitions = data.competitions.map(c => {
+        if (publishedCompIds.has(c.id)) {
+          return { ...c, isPublishedResult: true, status: 'completed', isRunning: false };
+        }
+        return c;
+      });
+
+      this.saveData(data);
+      this.recalculateGroupPoints();
+      this.notify();
+
+      return {
+        success: true,
+        message: mode === 'replace'
+          ? `Successfully replaced all results with ${validResults.length} records.`
+          : `Successfully imported & updated results for ${validResults.length} competition(s).`,
+        count: validResults.length,
+        errors: errors.length > 0 ? errors : undefined
+      };
+    } catch (err: any) {
+      return { success: false, message: `JSON parsing error: ${err.message || 'Invalid syntax'}` };
+    }
+  }
+
+  // ==========================================
+  // JUDGE MARKS JSON IMPORT & EXPORT
+  // ==========================================
+  public exportJudgeMarksJSON(filterCompId?: string): string {
+    const data = this.getData();
+    const profileById = new Map((data.profiles || []).map(p => [p.id, p]));
+    const compMap = new Map((data.competitions || []).map(c => [c.id, c.name]));
+
+    let targetRegs = data.registrations || [];
+    if (filterCompId && filterCompId !== 'All') {
+      targetRegs = targetRegs.filter(r => r.competitionId === filterCompId);
+    }
+
+    const marksList = targetRegs.map(r => {
+      const prof = r.participantId ? profileById.get(r.participantId) : undefined;
+      return {
+        registrationId: r.id,
+        competitionId: r.competitionId,
+        competitionName: compMap.get(r.competitionId) || r.competitionId,
+        participantName: r.participantName || prof?.name || '',
+        participantUserId: r.participantUserId || prof?.userId || '',
+        groupName: r.groupName || prof?.groupName || '',
+        codeLetter: r.codeLetter || '',
+        mark: r.mark !== undefined && r.mark !== null ? String(r.mark) : '',
+        judgeRank: r.judgeRank !== undefined && r.judgeRank > 0 ? Number(r.judgeRank) : null,
+        isReported: Boolean(r.isReported)
+      };
+    });
+
+    const payload = {
+      version: '1.0',
+      exportedAt: new Date().toISOString(),
+      type: 'judge_marks',
+      filterCompetitionId: filterCompId || 'All',
+      totalCandidates: marksList.length,
+      scoredCount: marksList.filter(m => m.mark && m.mark.trim() !== '').length,
+      judgeMarks: marksList
+    };
+
+    return JSON.stringify(payload, null, 2);
+  }
+
+  public importJudgeMarksJSON(jsonString: string, mode: 'merge' | 'replace' = 'merge'): {
+    success: boolean;
+    message: string;
+    count?: number;
+    errors?: string[];
+  } {
+    try {
+      const parsed = JSON.parse(jsonString);
+      let rawList: any[] = [];
+
+      if (Array.isArray(parsed)) {
+        rawList = parsed;
+      } else if (parsed && typeof parsed === 'object') {
+        if (Array.isArray(parsed.judgeMarks)) {
+          rawList = parsed.judgeMarks;
+        } else if (Array.isArray(parsed.marks)) {
+          rawList = parsed.marks;
+        } else if (Array.isArray(parsed.data)) {
+          rawList = parsed.data;
+        } else {
+          return { success: false, message: 'Invalid JSON format: expected an array of judge marks or an object with "judgeMarks" array.' };
+        }
+      }
+
+      if (rawList.length === 0) {
+        return { success: false, message: 'JSON file contains no judge mark entries.' };
+      }
+
+      const data = this.getData();
+      const compMap = new Map((data.competitions || []).map(c => [c.id, c]));
+      const compByName = new Map((data.competitions || []).map(c => [c.name.trim().toLowerCase(), c]));
+      const regById = new Map((data.registrations || []).map(r => [r.id, r]));
+
+      let updatedCount = 0;
+      const errors: string[] = [];
+
+      // If replace mode, collect affected competitions and clear their existing marks
+      if (mode === 'replace') {
+        const affectedCompIds = new Set<string>();
+        rawList.forEach(item => {
+          if (item?.competitionId) affectedCompIds.add(item.competitionId);
+          if (item?.competitionName && compByName.has(String(item.competitionName).trim().toLowerCase())) {
+            affectedCompIds.add(compByName.get(String(item.competitionName).trim().toLowerCase())!.id);
+          }
+        });
+
+        data.registrations.forEach(r => {
+          if (affectedCompIds.has(r.competitionId)) {
+            r.mark = undefined;
+            r.judgeRank = undefined;
+          }
+        });
+      }
+
+      rawList.forEach((item, idx) => {
+        if (!item || typeof item !== 'object') {
+          errors.push(`Item #${idx + 1} is not a valid object.`);
+          return;
+        }
+
+        // 1. Direct match by registrationId
+        let reg: Registration | undefined;
+        if (item.registrationId && regById.has(item.registrationId)) {
+          reg = regById.get(item.registrationId);
+        }
+
+        // 2. Secondary match by competition + chestNo / codeLetter / participantName
+        if (!reg) {
+          let compId = item.competitionId;
+          if (!compId && item.competitionName && compByName.has(String(item.competitionName).trim().toLowerCase())) {
+            compId = compByName.get(String(item.competitionName).trim().toLowerCase())!.id;
+          }
+
+          if (compId) {
+            const compRegs = (data.registrations || []).filter(r => r.competitionId === compId);
+            const chestNo = String(item.participantUserId || item.chestNo || '').trim().toLowerCase();
+            const codeLetter = String(item.codeLetter || '').trim().toUpperCase();
+            const pName = String(item.participantName || '').trim().toLowerCase();
+
+            if (chestNo) {
+              reg = compRegs.find(r => (r.participantUserId || '').trim().toLowerCase() === chestNo);
+            }
+            if (!reg && codeLetter) {
+              reg = compRegs.find(r => (r.codeLetter || '').trim().toUpperCase() === codeLetter);
+            }
+            if (!reg && pName) {
+              reg = compRegs.find(r => (r.participantName || '').trim().toLowerCase() === pName);
+            }
+          }
+        }
+
+        if (!reg) {
+          errors.push(`Item #${idx + 1}: Participant "${item.participantName || item.participantUserId || item.registrationId || 'Unknown'}" not found.`);
+          return;
+        }
+
+        // Apply mark
+        if (item.mark !== undefined && item.mark !== null) {
+          reg.mark = String(item.mark).trim();
+        }
+
+        // Apply judge rank
+        if (item.judgeRank !== undefined && item.judgeRank !== null) {
+          const rankNum = Number(item.judgeRank);
+          reg.judgeRank = rankNum > 0 ? rankNum : undefined;
+        }
+
+        // Apply code letter if present
+        if (item.codeLetter !== undefined && typeof item.codeLetter === 'string' && item.codeLetter.trim()) {
+          reg.codeLetter = item.codeLetter.trim().toUpperCase();
+        }
+
+        // If mark is present or explicitly set reported, ensure isReported is true
+        if (typeof item.isReported === 'boolean') {
+          reg.isReported = item.isReported;
+        } else if (reg.mark && reg.mark.trim() !== '') {
+          reg.isReported = true;
+        }
+
+        updatedCount++;
+      });
+
+      if (updatedCount === 0) {
+        return {
+          success: false,
+          message: 'No judge marks could be applied to existing registrations.',
+          errors: errors.length > 0 ? errors : undefined
+        };
+      }
+
+      this.saveData(data);
+      this.notify();
+
+      return {
+        success: true,
+        message: `Successfully imported & updated judge marks for ${updatedCount} participant(s).`,
+        count: updatedCount,
+        errors: errors.length > 0 ? errors : undefined
+      };
+    } catch (err: any) {
+      return { success: false, message: `JSON parsing error: ${err.message || 'Invalid syntax'}` };
+    }
+  }
+
+  // ==========================================
+  // ATTENDANCE & FESTIVAL REPORT JSON IMPORT & EXPORT
+  // ==========================================
+  public exportAttendanceReportJSON(filterCompId?: string): string {
+    const data = this.getData();
+    const profileById = new Map((data.profiles || []).map(p => [p.id, p]));
+    const compMap = new Map((data.competitions || []).map(c => [c.id, c.name]));
+
+    let targetRegs = data.registrations || [];
+    if (filterCompId && filterCompId !== 'All') {
+      targetRegs = targetRegs.filter(r => r.competitionId === filterCompId);
+    }
+
+    const total = targetRegs.length;
+    const reported = targetRegs.filter(r => r.isReported).length;
+    const absent = total - reported;
+    const rate = total > 0 ? `${((reported / total) * 100).toFixed(1)}%` : '0%';
+
+    const attendanceList = targetRegs.map(r => {
+      const prof = r.participantId ? profileById.get(r.participantId) : undefined;
+      return {
+        registrationId: r.id,
+        competitionId: r.competitionId,
+        competitionName: compMap.get(r.competitionId) || r.competitionId,
+        participantName: r.participantName || prof?.name || '',
+        participantUserId: r.participantUserId || prof?.userId || '',
+        groupName: r.groupName || prof?.groupName || '',
+        codeLetter: r.codeLetter || '',
+        isReported: Boolean(r.isReported),
+        mark: r.mark || null
+      };
+    });
+
+    const payload = {
+      version: '1.0',
+      exportedAt: new Date().toISOString(),
+      type: 'attendance_report',
+      filterCompetitionId: filterCompId || 'All',
+      summary: {
+        totalCandidates: total,
+        reportedCount: reported,
+        absentCount: absent,
+        attendanceRate: rate
+      },
+      attendance: attendanceList
+    };
+
+    return JSON.stringify(payload, null, 2);
+  }
+
+  public importAttendanceReportJSON(jsonString: string, mode: 'merge' | 'replace' = 'merge'): {
+    success: boolean;
+    message: string;
+    count?: number;
+    errors?: string[];
+  } {
+    try {
+      const parsed = JSON.parse(jsonString);
+      let rawList: any[] = [];
+
+      if (Array.isArray(parsed)) {
+        rawList = parsed;
+      } else if (parsed && typeof parsed === 'object') {
+        if (Array.isArray(parsed.attendance)) {
+          rawList = parsed.attendance;
+        } else if (Array.isArray(parsed.report)) {
+          rawList = parsed.report;
+        } else if (Array.isArray(parsed.data)) {
+          rawList = parsed.data;
+        } else {
+          return { success: false, message: 'Invalid JSON format: expected an array or an object with an "attendance" array.' };
+        }
+      }
+
+      if (rawList.length === 0) {
+        return { success: false, message: 'JSON file contains no attendance records.' };
+      }
+
+      const data = this.getData();
+      const compByName = new Map((data.competitions || []).map(c => [c.name.trim().toLowerCase(), c]));
+      const regById = new Map((data.registrations || []).map(r => [r.id, r]));
+
+      let updatedCount = 0;
+      const errors: string[] = [];
+
+      rawList.forEach((item, idx) => {
+        if (!item || typeof item !== 'object') {
+          errors.push(`Item #${idx + 1} is not a valid object.`);
+          return;
+        }
+
+        let reg: Registration | undefined;
+        if (item.registrationId && regById.has(item.registrationId)) {
+          reg = regById.get(item.registrationId);
+        }
+
+        if (!reg) {
+          let compId = item.competitionId;
+          if (!compId && item.competitionName && compByName.has(String(item.competitionName).trim().toLowerCase())) {
+            compId = compByName.get(String(item.competitionName).trim().toLowerCase())!.id;
+          }
+
+          if (compId) {
+            const compRegs = (data.registrations || []).filter(r => r.competitionId === compId);
+            const chestNo = String(item.participantUserId || item.chestNo || '').trim().toLowerCase();
+            const pName = String(item.participantName || '').trim().toLowerCase();
+
+            if (chestNo) {
+              reg = compRegs.find(r => (r.participantUserId || '').trim().toLowerCase() === chestNo);
+            }
+            if (!reg && pName) {
+              reg = compRegs.find(r => (r.participantName || '').trim().toLowerCase() === pName);
+            }
+          }
+        }
+
+        if (!reg) {
+          errors.push(`Item #${idx + 1}: Participant "${item.participantName || item.participantUserId || 'Unknown'}" not found.`);
+          return;
+        }
+
+        if (typeof item.isReported === 'boolean') {
+          reg.isReported = item.isReported;
+        }
+        if (typeof item.codeLetter === 'string' && item.codeLetter.trim()) {
+          reg.codeLetter = item.codeLetter.trim().toUpperCase();
+        }
+
+        updatedCount++;
+      });
+
+      if (updatedCount === 0) {
+        return {
+          success: false,
+          message: 'No attendance records matched existing candidates.',
+          errors: errors.length > 0 ? errors : undefined
+        };
+      }
+
+      this.saveData(data);
+      this.notify();
+
+      return {
+        success: true,
+        message: `Successfully updated attendance status for ${updatedCount} candidate(s).`,
+        count: updatedCount,
+        errors: errors.length > 0 ? errors : undefined
+      };
+    } catch (err: any) {
+      return { success: false, message: `JSON parsing error: ${err.message || 'Invalid syntax'}` };
+    }
+  }
+
+  public exportFestivalReportJSON(): string {
+    const data = this.getData();
+    const leaderboard = this.getLeaderboard();
+    const categories = this.getCategories();
+    const totalComps = data.competitions.length;
+    const completedComps = data.competitions.filter(c => c.isPublishedResult).length;
+    const totalRegs = data.registrations.length;
+    const reportedRegs = data.registrations.filter(r => r.isReported).length;
+    const attendanceRate = totalRegs > 0 ? `${((reportedRegs / totalRegs) * 100).toFixed(1)}%` : '0%';
+
+    const branding = this.getBrandingConfig();
+    const payload = {
+      version: '1.0',
+      exportedAt: new Date().toISOString(),
+      type: 'festival_master_report',
+      festivalName: branding.title || branding.college || 'Art Fest',
+      summary: {
+        totalCompetitions: totalComps,
+        completedCompetitions: completedComps,
+        pendingCompetitions: totalComps - completedComps,
+        completionRate: totalComps > 0 ? `${((completedComps / totalComps) * 100).toFixed(1)}%` : '0%',
+        totalParticipants: data.profiles.length,
+        totalRegistrations: totalRegs,
+        totalReported: reportedRegs,
+        totalAbsent: totalRegs - reportedRegs,
+        overallAttendanceRate: attendanceRate,
+        totalGroups: data.groups.length,
+        totalPublishedResults: data.results.length
+      },
+      leaderboard: leaderboard.map(g => ({
+        rank: g.rank,
+        groupId: g.groupId,
+        groupName: g.groupName,
+        code: g.groupCode,
+        color: g.color,
+        totalPoints: g.totalPoints,
+        goldCount: g.golds,
+        silverCount: g.silvers,
+        bronzeCount: g.bronzes
+      })),
+      categories: categories.map(cat => ({
+        name: cat,
+        competitionsCount: data.competitions.filter(c => c.category === cat).length,
+        completedCount: data.competitions.filter(c => c.category === cat && c.isPublishedResult).length
+      })),
+      competitionsSummary: data.competitions.map(c => {
+        const cRegs = data.registrations.filter(r => r.competitionId === c.id);
+        const cReported = cRegs.filter(r => r.isReported).length;
+        const cResult = data.results.find(r => r.competitionId === c.id);
+        return {
+          id: c.id,
+          name: c.name,
+          category: c.category,
+          venue: c.venue,
+          scheduleTime: c.scheduleTime || 'Unscheduled',
+          status: c.status,
+          reportingStatus: c.reportingStatus,
+          isPublished: Boolean(c.isPublishedResult),
+          enrolledCount: cRegs.length,
+          reportedCount: cReported,
+          firstPlaceWinner: cResult?.firstPlaceParticipantName || null,
+          firstPlaceGroup: cResult?.firstPlaceGroupName || null
+        };
+      }),
+      results: data.results
+    };
+
+    return JSON.stringify(payload, null, 2);
   }
 
   public exportCSV(type: 'participants' | 'competitions' | 'registrations' | 'results' | 'groups' | 'marks' | 'stages' | 'comments' | 'notifications' | 'categories' | 'levels'): string {

@@ -75,6 +75,12 @@ export const supabase: SupabaseClient = createClient(
  * Create secure RLS policies separately according to your user/admin model.
  */
 export const SUPABASE_SETUP_SQL = `
+-- =========================================================================
+-- SUPABASE DATABASE SCHEMA & REALTIME CONFIGURATION
+-- Madani Art Festival Management System (v2 Clean)
+-- =========================================================================
+
+-- 1. Unified festival data table
 CREATE TABLE IF NOT EXISTS public.fest_data (
   collection_name text NOT NULL,
   id text NOT NULL,
@@ -83,11 +89,16 @@ CREATE TABLE IF NOT EXISTS public.fest_data (
   PRIMARY KEY (collection_name, id)
 );
 
+-- 2. Performance index for collection retrieval
 CREATE INDEX IF NOT EXISTS idx_fest_data_collection
   ON public.fest_data (collection_name);
 
-ALTER TABLE public.fest_data ENABLE ROW LEVEL SECURITY;
+-- 3. Replica identity for real-time delete event replication
+-- CRITICAL: Without FULL replica identity, PostgreSQL cannot broadcast old row values on DELETE
+ALTER TABLE public.fest_data REPLICA IDENTITY FULL;
 
+-- 4. Realtime Publication
+-- Enables live WebSocket event streaming across all connected devices
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -100,11 +111,26 @@ BEGIN
     EXECUTE 'ALTER PUBLICATION supabase_realtime ADD TABLE public.fest_data';
   END IF;
 END $$;
+
+-- 5. Row Level Security (RLS) Configuration
+-- Grants full SELECT, INSERT, UPDATE, and DELETE permissions to public
+ALTER TABLE public.fest_data ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Allow public full access to fest_data" ON public.fest_data;
+
+CREATE POLICY "Allow public full access to fest_data"
+  ON public.fest_data
+  FOR ALL
+  TO public
+  USING (true)
+  WITH CHECK (true);
 `;
 
 /* -------------------------------------------------------------------------- */
 /* Helpers                                                                    */
 /* -------------------------------------------------------------------------- */
+
+export const GLOBAL_REALTIME_CHANNEL = 'fest_realtime_global_sync_v2';
 
 const collectionKeyMap: Record<string, string> = {
   groups: 'groups',
@@ -119,16 +145,6 @@ const collectionKeyMap: Record<string, string> = {
 
 function getStoreKey(collectionName: string): string {
   return collectionKeyMap[collectionName] || collectionName;
-}
-
-function getChannelId(): string {
-  const randomUuid = globalThis.crypto?.randomUUID?.();
-
-  if (randomUuid) {
-    return randomUuid;
-  }
-
-  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
 export function sanitizeForSupabase<T = any>(value: T): T {
@@ -380,13 +396,101 @@ export async function saveSettingsToModularCloud(
 /* -------------------------------------------------------------------------- */
 
 export async function pushFullStateToModularCloud(
-  state: any
-): Promise<void> {
+  state: any,
+  providedPushId?: string
+): Promise<{ success: boolean; deletedObsolete: number; upserted: number; message: string }> {
   if (!isSupabaseConfigured || !state) {
-    return;
+    return { success: false, deletedObsolete: 0, upserted: 0, message: 'Supabase is not configured' };
   }
 
+  const pushId = providedPushId || `force_push_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+  const updatedAt = state.updatedAt || createUpdatedAt();
+
+  let deletedCount = 0;
+  let upsertedCount = 0;
+
   try {
+    // 1. Inspect existing Supabase rows to identify obsolete items
+    const { data: existingRows, error: fetchErr } = await supabase
+      .from('fest_data')
+      .select('collection_name, id');
+
+    if (fetchErr) {
+      console.warn('Could not inspect existing Supabase rows:', fetchErr.message);
+    }
+
+    // Active item IDs for each collection
+    const activeMap: Record<string, Set<string>> = {
+      groups: new Set((state.groups || []).map((x: any) => String(x.id))),
+      profiles: new Set((state.profiles || []).map((x: any) => String(x.id))),
+      competitions: new Set((state.competitions || []).map((x: any) => String(x.id))),
+      registrations: new Set((state.registrations || []).map((x: any) => String(x.id))),
+      results: new Set((state.results || []).map((x: any) => String(x.id))),
+      comments: new Set((state.comments || []).map((x: any) => String(x.id))),
+      notifications: new Set((state.notifications || []).map((x: any) => String(x.id))),
+      event_posters: new Set((state.eventPosters || []).map((x: any) => String(x.id))),
+      fest_settings: new Set(['general', 'force_push_signal']),
+    };
+
+    // Find obsolete items in Supabase that are not in the new active state
+    if (existingRows && Array.isArray(existingRows)) {
+      const obsoleteByCol: Record<string, string[]> = {};
+
+      for (const row of existingRows) {
+        const col = row.collection_name;
+        const validSet = activeMap[col];
+        if (validSet) {
+          if (!validSet.has(String(row.id))) {
+            if (!obsoleteByCol[col]) obsoleteByCol[col] = [];
+            obsoleteByCol[col].push(String(row.id));
+          }
+        } else if (col !== 'fest_settings') {
+          if (!obsoleteByCol[col]) obsoleteByCol[col] = [];
+          obsoleteByCol[col].push(String(row.id));
+        }
+      }
+
+      // Delete obsolete items from Supabase in batches
+      for (const [colName, ids] of Object.entries(obsoleteByCol)) {
+        if (ids.length > 0) {
+          for (let i = 0; i < ids.length; i += 100) {
+            const chunk = ids.slice(i, i + 100);
+            const { error: delErr } = await supabase
+              .from('fest_data')
+              .delete()
+              .eq('collection_name', colName)
+              .in('id', chunk);
+
+            if (delErr) {
+              console.warn(`Could not delete obsolete rows in ${colName}:`, delErr.message);
+            } else {
+              deletedCount += chunk.length;
+            }
+          }
+        }
+      }
+    }
+
+    // 2. Batch upsert all current active collections
+    const collectionsToUpsert: Array<{ colName: string; items: any[] }> = [
+      { colName: 'groups', items: state.groups || [] },
+      { colName: 'profiles', items: state.profiles || [] },
+      { colName: 'competitions', items: state.competitions || [] },
+      { colName: 'registrations', items: state.registrations || [] },
+      { colName: 'results', items: state.results || [] },
+      { colName: 'comments', items: state.comments || [] },
+      { colName: 'notifications', items: state.notifications || [] },
+      { colName: 'event_posters', items: state.eventPosters || [] },
+    ];
+
+    for (const { colName, items } of collectionsToUpsert) {
+      if (items.length > 0) {
+        await batchSaveDocsToModularCloud(colName, items);
+        upsertedCount += items.length;
+      }
+    }
+
+    // 3. Save settings with force-push markers
     const settingsPayload = {
       categories: state.categories,
       stages: state.stages,
@@ -404,41 +508,66 @@ export async function pushFullStateToModularCloud(
       commentSettings: state.commentSettings,
       activeValuationCompIds: state.activeValuationCompIds,
       activeValuationCompId: state.activeValuationCompId,
-      updatedAt: state.updatedAt || createUpdatedAt(),
+      updatedAt,
+      forcePushId: pushId,
+      forcePushTimestamp: updatedAt,
     };
 
     await saveSettingsToModularCloud(settingsPayload);
+    upsertedCount++;
 
-    const collections = [
-      'groups',
-      'profiles',
-      'competitions',
-      'registrations',
-      'results',
-      'comments',
-      'notifications',
-      'eventPosters',
-    ];
-
-    for (const collection of collections) {
-      const items = Array.isArray(state[collection])
-        ? state[collection]
-        : [];
-
-      if (items.length > 0) {
-        const databaseCollection =
-          collection === 'eventPosters'
-            ? 'event_posters'
-            : collection;
-
-        await batchSaveDocsToModularCloud(
-          databaseCollection,
-          items
-        );
-      }
+    // 4. Upsert dedicated force_push_signal row to guarantee postgres_changes fires on all clients
+    const signalPayload = {
+      pushId,
+      timestamp: Date.now(),
+      updatedAt,
+      action: 'force_replace_all_devices',
+    };
+    const { error: signalErr } = await supabase.from('fest_data').upsert(
+      {
+        collection_name: 'fest_settings',
+        id: 'force_push_signal',
+        data: signalPayload,
+        updated_at: updatedAt,
+      },
+      { onConflict: 'collection_name,id' }
+    );
+    if (signalErr) {
+      console.warn('Error saving force_push_signal:', signalErr.message);
+    } else {
+      upsertedCount++;
     }
-  } catch (error) {
-    console.warn('Error pushing full state to Supabase:', error);
+
+    // 5. Broadcast real-time message across all active devices via the global channel
+    const channelToUse = realtimeChannel || supabase.channel(GLOBAL_REALTIME_CHANNEL);
+    try {
+      await channelToUse.send({
+        type: 'broadcast',
+        event: 'force_push_full_state',
+        payload: {
+          pushId,
+          timestamp: Date.now(),
+          fullState: state,
+        },
+      });
+    } catch (bcErr) {
+      console.warn('Realtime channel broadcast warning:', bcErr);
+    }
+
+    return {
+      success: true,
+      deletedObsolete: deletedCount,
+      upserted: upsertedCount,
+      message: 'Successfully force-pushed state to cloud and signaled all devices',
+    };
+  } catch (error: any) {
+    console.error('Error pushing full state to Supabase:', error);
+    return {
+      success: false,
+      deletedObsolete: deletedCount,
+      upserted: upsertedCount,
+      message: error?.message || 'Error pushing to cloud',
+    };
   }
 }
 
@@ -494,6 +623,7 @@ export async function fetchInitialModularCloudState(): Promise<any | null> {
       activeValuationCompIds: undefined,
       activeValuationCompId: undefined,
       updatedAt: undefined,
+      forcePushId: undefined,
     };
 
     for (const row of rows) {
@@ -503,8 +633,10 @@ export async function fetchInitialModularCloudState(): Promise<any | null> {
         case 'fest_settings':
           if (row.id === 'general') {
             Object.assign(state, item);
-            state.updatedAt =
-              item.updatedAt || row.updated_at;
+            state.updatedAt = item.updatedAt || row.updated_at;
+            state.forcePushId = item.forcePushId;
+          } else if (row.id === 'force_push_signal') {
+            state.latestSignalPushId = item.pushId;
           }
           break;
 
@@ -543,7 +675,8 @@ let realtimeChannel: RealtimeChannel | null = null;
 export function subscribeToModularCloudCollections(
   onUpdate: (type: string, data: any) => void,
   onError?: (error: Error) => void,
-  onConnected?: () => void
+  onConnected?: () => void,
+  onForceReplace?: (fullState: any, pushId?: string) => void
 ): () => void {
   if (!isSupabaseConfigured) {
     return () => {};
@@ -555,7 +688,17 @@ export function subscribeToModularCloudCollections(
   }
 
   const channel = supabase
-    .channel(`fest_realtime_sync:${getChannelId()}`)
+    .channel(GLOBAL_REALTIME_CHANNEL, {
+      config: {
+        broadcast: { ack: true },
+      },
+    })
+    .on('broadcast', { event: 'force_push_full_state' }, (msg: any) => {
+      console.log('Received real-time FORCE PUSH broadcast from cloud admin:', msg);
+      if (msg?.payload?.fullState) {
+        onForceReplace?.(msg.payload.fullState, msg.payload.pushId);
+      }
+    })
     .on(
       'postgres_changes',
       {
@@ -578,8 +721,21 @@ export function subscribeToModularCloudCollections(
             return;
           }
 
+          // Check if this is the dedicated force push signal
+          if (collectionName === 'fest_settings' && newRow.id === 'force_push_signal') {
+            const signalData = getRowData(newRow);
+            if (signalData?.pushId) {
+              onUpdate('force_push_signal', signalData);
+            }
+            return;
+          }
+
           if (collectionName === 'fest_settings') {
-            onUpdate('settings', getRowData(newRow));
+            const sData = getRowData(newRow);
+            if (sData?.forcePushId) {
+              onUpdate('force_push_signal', sData);
+            }
+            onUpdate('settings', sData);
             return;
           }
 
@@ -643,26 +799,37 @@ export function subscribeToModularCloudCollections(
  * Starts synchronization and refreshes the full state after reconnects.
  */
 export async function startSupabaseSync(
-  replaceFullState: (state: any) => void,
+  replaceFullState: (state: any, pushId?: string) => void,
   applyRealtimeUpdate: (type: string, data: any) => void,
   onError?: (error: Error) => void
 ): Promise<() => void> {
-  const refreshFromDatabase = async () => {
+  const refreshFromDatabase = async (pushId?: string) => {
     const freshState =
       await fetchInitialModularCloudState();
 
     if (freshState) {
-      replaceFullState(freshState);
+      replaceFullState(freshState, pushId);
     }
   };
 
   const unsubscribe =
     subscribeToModularCloudCollections(
-      applyRealtimeUpdate,
+      (type, data) => {
+        if (type === 'force_push_signal') {
+          console.log('Detected force_push_signal, refreshing full state from database to replace all local data...');
+          refreshFromDatabase(data?.pushId);
+        } else {
+          applyRealtimeUpdate(type, data);
+        }
+      },
       onError,
       async () => {
         // Refresh after reconnect to recover missed events.
         await refreshFromDatabase();
+      },
+      (fullState, pushId) => {
+        console.log('Applying direct broadcast full state replacement across device...');
+        replaceFullState(fullState, pushId);
       }
     );
 
